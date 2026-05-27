@@ -21,6 +21,9 @@ import time
 import plotly.graph_objects as go
 import urllib.request
 import uuid
+import queue
+
+data_queue = queue.Queue()
 
 st.set_page_config(layout="wide", page_title="AI Brains Inspector")
 
@@ -399,6 +402,50 @@ if not st.session_state.brains_auto:
 elif not status:
     render_all(st.session_state.brains_frame)
 
+processed_queue = False
+while not data_queue.empty():
+    processed_queue = True
+    item = data_queue.get()
+
+    if item["type"] == "data":
+        data = item["data"]
+        st.session_state.obs_h.append({
+            "score":     data.get("error", 0.0),
+            "threshold": data.get("obs_threshold", DEFAULT_THRESHOLD),
+            "is_attack": data.get("is_attack", False)
+        })
+        st.session_state.proph_h.append({
+            "forecast":  data.get("forecast_vol", 0.0),
+        })
+        st.session_state.analyst_h.append({
+            "traffic_type": data.get("traffic_type", "Normal"),
+            "cluster_id":   data.get("cluster_id", 0),
+        })
+        st.session_state.manager_h.append({
+            "route": data.get("route", 0),
+            "lat_a": data.get("lat_a", 0.0),
+            "lat_b": data.get("lat_b", 0.05),
+        })
+
+        for key in ["obs_h", "proph_h", "analyst_h", "manager_h"]:
+            while len(st.session_state[key]) > MAX_HISTORY:
+                st.session_state[key].pop(0)
+
+        st.session_state.brains_frame += 1
+        render_all(st.session_state.brains_frame)
+    elif item["type"] == "error":
+        st.error(f"Connection lost: {item['error']}")
+        st.session_state.brains_conn = False
+        st.session_state.brains_stop = False
+        render_all(st.session_state.brains_frame)
+    elif item["type"] == "finished":
+        st.session_state.brains_conn = False
+        st.session_state.brains_stop = False
+        render_all(st.session_state.brains_frame)
+
 if st.session_state.brains_conn:
-    time.sleep(0.4)
+    if processed_queue:
+        time.sleep(0.1)
+    else:
+        time.sleep(0.5)
     st.rerun()

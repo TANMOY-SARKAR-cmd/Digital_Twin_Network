@@ -26,6 +26,10 @@ import torch.nn as nn
 import joblib
 from collections import deque
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
+from typing import List, Dict, Any
+import logging
+import time
 from stable_baselines3 import PPO
 
 try:
@@ -257,7 +261,10 @@ def _ai_inference(
             actual_vol_scaled = prophet_scaler.transform(
                 [[np.nan_to_num(np.log1p(raw_vol), nan=0.0)]])[0][0]
             forecast_deviation = abs(forecast_raw - actual_vol_scaled)
-        except Exception:
+        except (ValueError, TypeError) as e:
+            logging.error(f'Prophet scaler error: {e}')
+            forecast_valid = False
+
             forecast_deviation = 0.0
 
         # ── Analyst: cluster ID + transition detection ───────────────────────
@@ -374,6 +381,7 @@ def _ai_inference(
         error              = round(mae,                   6),
         error_delta        = round(error_delta,           6),
         forecast_deviation = round(forecast_deviation,    4),
+        forecast_valid     = forecast_valid,
         cluster_id         = cluster_id,
         cluster_transition = cluster_transition,
         traffic_type       = traffic_type,
@@ -388,6 +396,8 @@ def _ai_inference(
 def _sanitise(payload: dict):
     raw_features = np.array(payload["features"]).reshape(1, -1)
     features     = np.nan_to_num(raw_features, nan=0.0, posinf=0.0, neginf=0.0)
+    if features.shape != (1, 40):
+        return {"error": "bad_payload", "expected_shape": 40}
     raw_vol      = float(payload.get("volume", 0))
     vol_clean    = float(np.nan_to_num(np.log1p(raw_vol), nan=0.0, posinf=0.0, neginf=0.0))
     scaled_feat  = obs_scaler.transform(features)[0]
@@ -409,9 +419,23 @@ connected_topology_dashboards: set[WebSocket] = set()
 _active_compare_ws: WebSocket | None = None
 
 
+global_packets_received = 0
+packet_timestamps = deque(maxlen=10000)
+
 @app.get("/health")
 def get_health():
-    return {"device": device.type, "packets_received": 0, "pps_10s": 0.0, "queue_depth": 0, "obs_threshold": obs_threshold}
+    now = time.time()
+    recent_packets = sum(1 for ts in packet_timestamps if now - ts <= 10.0)
+    pps_10s = recent_packets / 10.0
+    active_ws_clients = len(connected_dashboards) + len(connected_topology_dashboards)
+    return {
+        "device": device.type,
+        "packets_received": global_packets_received,
+        "pps_10s": pps_10s,
+        "active_ws_clients": active_ws_clients,
+        "queue_depth": 0,
+        "obs_threshold": obs_threshold
+    }
 
 @app.websocket("/ws/dashboard")
 async def dashboard_endpoint(websocket: WebSocket):
@@ -420,7 +444,10 @@ async def dashboard_endpoint(websocket: WebSocket):
     try:
         while True:
             await websocket.receive_text()
-    except (WebSocketDisconnect, Exception):
+    except (WebSocketDisconnect, json.JSONDecodeError):
+        pass
+    except Exception as e:
+        logging.error("Unexpected WS error", exc_info=True)
         connected_dashboards.discard(websocket)
 
 
@@ -432,7 +459,10 @@ async def live_topology_endpoint(websocket: WebSocket):
     try:
         while True:
             await websocket.receive_text()
-    except (WebSocketDisconnect, Exception):
+    except (WebSocketDisconnect, json.JSONDecodeError):
+        pass
+    except Exception as e:
+        logging.error("Unexpected WS error", exc_info=True)
         connected_topology_dashboards.discard(websocket)
 
 
@@ -461,7 +491,14 @@ async def network_endpoint(websocket: WebSocket):
             payload = json.loads(data)
             pkt_count += 1
 
-            features, raw_vol, scaled_feat, vol_scaled = _sanitise(payload)
+            global global_packets_received, packet_timestamps
+            global_packets_received += 1
+            packet_timestamps.append(time.time())
+            sanitise_result = _sanitise(payload)
+            if isinstance(sanitise_result, dict):
+                await websocket.send_json(ErrorResponse(**sanitise_result).model_dump())
+                continue
+            features, raw_vol, scaled_feat, vol_scaled = sanitise_result
             seq_buf.append(scaled_feat)
             vol_buf.append(vol_scaled)
 
@@ -504,14 +541,20 @@ async def network_endpoint(websocket: WebSocket):
             for dash in list(connected_dashboards):
                 try:
                     await dash.send_json(broadcast_payload)
-                except (Exception, _TornadoWSClosed):
+                except (_TornadoWSClosed, WebSocketDisconnect, json.JSONDecodeError):
+                    pass
+                except Exception as e:
+                    logging.error("Unexpected WS error", exc_info=True)
                     dead.add(dash)
             connected_dashboards.difference_update(dead)
             dead_topo = set()
             for dash in list(connected_topology_dashboards):
                 try:
                     await dash.send_json({"route": result["route"], "is_attack": result["is_attack"]})
-                except (Exception, _TornadoWSClosed):
+                except (_TornadoWSClosed, WebSocketDisconnect, json.JSONDecodeError):
+                    pass
+                except Exception as e:
+                    logging.error("Unexpected WS error", exc_info=True)
                     dead_topo.add(dash)
             connected_topology_dashboards.difference_update(dead_topo)
 
@@ -548,6 +591,7 @@ async def compare_endpoint(websocket: WebSocket):
             await _active_compare_ws.close(code=1001,
                 reason="Superseded by new compare session")
         except Exception:
+
             pass  # already closed — ignore
         print("⚠️  Previous compare session closed (superseded).")
 
@@ -584,7 +628,14 @@ async def compare_endpoint(websocket: WebSocket):
             lat_a        = float(payload.get("lat_a", 0.01))
             lat_b        = float(payload.get("lat_b", 0.05))
 
-            features, raw_vol, scaled_feat, vol_scaled = _sanitise(payload)
+            global global_packets_received, packet_timestamps
+            global_packets_received += 1
+            packet_timestamps.append(time.time())
+            sanitise_result = _sanitise(payload)
+            if isinstance(sanitise_result, dict):
+                await websocket.send_json(ErrorResponse(**sanitise_result).model_dump())
+                continue
+            features, raw_vol, scaled_feat, vol_scaled = sanitise_result
 
             # Always update buffers so sequence context stays fresh
             seq_buf.append(scaled_feat)
@@ -620,28 +671,30 @@ async def compare_endpoint(websocket: WebSocket):
             # already-closed socket → RuntimeError crashes the uvicorn worker.
             # Catching it here lets the session end silently instead.
             try:
-                await websocket.send_json({
-                    "packet_index": packet_index,
-                    "ground_truth": ground_truth,
-                    "ai": {
-                        "route":              ai_result["route"],
-                        "is_attack":          ai_result["is_attack"],
-                        "attack_confidence":  ai_result["attack_confidence"],
-                        "error":              ai_result["error"],
-                        "error_delta":        ai_result["error_delta"],
-                        "forecast_deviation": ai_result["forecast_deviation"],
-                        "cluster_id":         ai_result["cluster_id"],
-                        "cluster_transition": ai_result["cluster_transition"],
-                        "traffic_type":       ai_result["traffic_type"],
-                    },
-                    "normal": {
-                        "route":       normal_result["route"],
-                        "is_attack":   normal_result["is_attack"],
-                        "lat_score":   normal_result["lat_score"],
-                        "vol_zscore":  normal_result["vol_zscore"],
-                        "rate_zscore": normal_result["rate_zscore"],
-                    },
-                })
+                payload = ComparePayload(
+                    packet_index=packet_index,
+                    ground_truth=ground_truth,
+                    ai=CompareAIResult(
+                        route=ai_result["route"],
+                        is_attack=ai_result["is_attack"],
+                        attack_confidence=ai_result["attack_confidence"],
+                        error=ai_result["error"],
+                        error_delta=ai_result["error_delta"],
+                        forecast_deviation=ai_result["forecast_deviation"],
+                        forecast_valid=ai_result["forecast_valid"],
+                        cluster_id=ai_result["cluster_id"],
+                        cluster_transition=ai_result["cluster_transition"],
+                        traffic_type=ai_result["traffic_type"]
+                    ),
+                    normal=CompareNormalResult(
+                        route=normal_result["route"],
+                        is_attack=normal_result["is_attack"],
+                        lat_score=normal_result["lat_score"],
+                        vol_zscore=normal_result["vol_zscore"],
+                        rate_zscore=normal_result["rate_zscore"]
+                    )
+                )
+                await websocket.send_json(payload.model_dump())
             except (RuntimeError, WebSocketDisconnect):
                 # Socket was closed (superseded by a newer session) — exit cleanly
                 break
