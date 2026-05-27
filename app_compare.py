@@ -339,26 +339,64 @@ if st.session_state.latest and "_error" in st.session_state.latest:
     st.error(f"Connection error: {st.session_state.latest['_error']}")
 
 # ── Live status banners ───────────────────────────────────────────────────────
-banner_left, banner_right = st.columns(2)
-with banner_left:
-    st.markdown("### 🤖 AI Router (LSTM + PPO)")
-    ai_banner = st.empty()
-with banner_right:
-    st.markdown("### 🖧 Normal Router (Rule-Based)")
+
+# FIX: Format N/A for undefined metrics (when dataset has no attack labels)
+def _fmt(v): return f"{v:.2%}" if v is not None else "N/A"
+
+router_left, router_right = st.columns(2)
+
+with router_left:
+    st.subheader("🖧 Standard Router")
     nm_banner = st.empty()
+
+    st.divider()
+    nm_m = _compute_metrics("nm")
+    nm_mc = st.columns(4)
+    nm_mc[0].metric("Accuracy",  f"{nm_m['accuracy']:.2%}")
+    nm_mc[1].metric("Precision", _fmt(nm_m['precision']))
+    nm_mc[2].metric("Recall",    _fmt(nm_m['recall']))
+    nm_mc[3].metric("FP Rate",   f"{nm_m['fpr']:.2%}")
+    st.divider()
+
+    chart_nm = st.empty()
+
+with router_right:
+    st.subheader("🤖 AI Router")
+    ai_banner = st.empty()
+
+    st.divider()
+    ai_m = _compute_metrics("ai")
+
+    # Calculate new metrics for AI
+    latest_conf  = list(st.session_state.ai_confidence)[-1]  if st.session_state.ai_confidence  else 0.0
+    latest_delta = list(st.session_state.ai_error_deltas)[-1] if st.session_state.ai_error_deltas else 0.0
+    latest_fcst  = st.session_state.latest["ai"].get("forecast_deviation", 0.0) if st.session_state.latest and "_error" not in st.session_state.latest else 0.0
+
+    ai_mc1 = st.columns(4)
+    ai_mc1[0].metric("Accuracy",    f"{ai_m['accuracy']:.2%}")
+    ai_mc1[1].metric("Precision",   _fmt(ai_m['precision']))
+    ai_mc1[2].metric("Recall",      _fmt(ai_m['recall']))
+    ai_mc1[3].metric("FP Rate",     f"{ai_m['fpr']:.2%}")
+
+    ai_mc2 = st.columns(4)
+    ai_mc2[0].metric("Attack Confidence", f"{latest_conf:.2%}", help="Unified score combining Observer + Prophet + Latency + Cluster signals")
+    ai_mc2[1].metric("Error Trend",       f"{latest_delta:+.5f}", help="Positive = anomaly score rising (more suspicious)")
+    ai_mc2[2].metric("Forecast Deviation",f"{latest_fcst:.4f}",  help="Prophet: how much actual volume deviates from predicted")
+    ai_mc2[3].metric("Cluster Transitions",  str(st.session_state.ai_cluster_transitions), help="# times traffic pattern shifted abruptly")
+    st.divider()
+
+    chart_ai = st.empty()
 
 if st.session_state.latest and "_error" not in st.session_state.latest:
     p    = st.session_state.latest
     conf = p["ai"].get("attack_confidence", 0.0)
     clus = p["ai"].get("cluster_transition", False)
-    # FIX: Only show 🔀 tag when confidence is already elevated (> 0.15).
-    # Previously it showed on every cluster flip, which fired on 54% of
-    # benign packets — making the banner meaningless noise.
     clus_tag = " 🔀 pattern shift" if (clus and conf > 0.15) else ""
     if p["ai"]["is_attack"]:
         ai_banner.error(f"⚠️ ATTACK DETECTED — confidence {conf:.0%}{clus_tag}")
     else:
         ai_banner.success(f"✅ Traffic Normal — confidence {1-conf:.0%}{clus_tag}")
+
     rate_z = p["normal"].get("rate_zscore", 0.0)
     rate_tag = f" (rate z={rate_z:.1f})" if abs(rate_z) > 2 else ""
     if p["normal"]["is_attack"]:
@@ -368,19 +406,6 @@ if st.session_state.latest and "_error" not in st.session_state.latest:
 
 st.divider()
 
-# ── Live Metric Cards ─────────────────────────────────────────────────────────
-ai_m = _compute_metrics("ai")
-nm_m = _compute_metrics("nm")
-
-# FIX: Format N/A for undefined metrics (when dataset has no attack labels)
-def _fmt(v): return f"{v:.2%}" if v is not None else "N/A"
-
-# Warn prominently when the loaded dataset has no attack traffic at all
-# FIX: Only show the all-benign warning when we have a representative sample.
-# Datasets like Wednesday start with many benign rows before attacks appear —
-# showing "no attack traffic" at 1% progress misleads the user into thinking
-# the dataset is all-benign when it isn't.
-# Threshold: either the simulation is finished, or we've seen > 15% of packets.
 _enough_data = (
     st.session_state.finished or
     (st.session_state.total_packets > 0 and
@@ -393,41 +418,6 @@ if not ai_m["has_positives"] and st.session_state.packets_sent > 50 and _enough_
         "This is expected for all-benign datasets like Monday-WorkingHours. "
         "Use **False Positive Rate** and **Accuracy** to compare routers here."
     )
-
-mc = st.columns(9)
-mc[0].metric("AI Accuracy",    f"{ai_m['accuracy']:.2%}")
-mc[1].metric("AI Precision",   _fmt(ai_m['precision']))
-mc[2].metric("AI Recall",      _fmt(ai_m['recall']))
-mc[3].metric("AI F1",          _fmt(ai_m['f1']))
-mc[4].metric("AI FP Rate",     f"{ai_m['fpr']:.2%}")
-mc[5].metric("Norm Accuracy",  f"{nm_m['accuracy']:.2%}")
-mc[6].metric("Norm Precision", _fmt(nm_m['precision']))
-mc[7].metric("Norm Recall",    _fmt(nm_m['recall']))
-mc[8].metric("Norm FP Rate",   f"{nm_m['fpr']:.2%}")
-
-# Second row — new AI signal metrics
-mc2 = st.columns(4)
-latest_conf  = list(st.session_state.ai_confidence)[-1]  if st.session_state.ai_confidence  else 0.0
-latest_delta = list(st.session_state.ai_error_deltas)[-1] if st.session_state.ai_error_deltas else 0.0
-latest_fcst  = st.session_state.latest["ai"].get("forecast_deviation", 0.0) if st.session_state.latest and "_error" not in st.session_state.latest else 0.0
-mc2[0].metric("AI Attack Confidence", f"{latest_conf:.2%}", help="Unified score combining Observer + Prophet + Latency + Cluster signals")
-mc2[1].metric("AI Error Trend",       f"{latest_delta:+.5f}", help="Positive = anomaly score rising (more suspicious)")
-mc2[2].metric("AI Forecast Deviation",f"{latest_fcst:.4f}",  help="Prophet: how much actual volume deviates from predicted")
-mc2[3].metric("Cluster Transitions",  str(st.session_state.ai_cluster_transitions), help="# times traffic pattern shifted abruptly")
-
-st.divider()
-
-# ── Live Charts ───────────────────────────────────────────────────────────────
-chart_left, chart_right = st.columns(2)
-
-with chart_left:
-    st.subheader("🤖 AI: Attack Confidence + Error Trend vs Ground Truth")
-    chart_ai = st.empty()
-
-with chart_right:
-    st.subheader("🖧 Normal: Rolling Latency Score vs Ground Truth")
-    chart_nm = st.empty()
-
 
 def _render_charts():
     gt         = list(st.session_state.gt_history)
@@ -458,8 +448,6 @@ def _render_charts():
         line=dict(color='#ef4444', width=1, dash='dot'),
         yaxis='y2'
     ))
-    # FIX: Draw both thresholds — sustained (0.35) and spike (0.28) —
-    # so the chart reflects the actual dual-mode detection logic in core_api.
     fig_ai.add_hline(y=0.35, line_dash='dot', line_color='orange',
                      annotation_text='Sustained Threshold (0.35)',
                      annotation_position='top left')
@@ -477,7 +465,6 @@ def _render_charts():
     chart_ai.plotly_chart(fig_ai, use_container_width=True)
 
     # ── Normal chart: latency (primary) + packet-rate z-score (secondary) ───
-    # Normalise rate_z to [0, ~0.12] range for co-display with latency
     rate_zs_norm = [min(max(z / 10.0, 0), 0.12) for z in rate_zs]
     fig_nm = go.Figure()
     fig_nm.add_trace(go.Scatter(
@@ -505,7 +492,6 @@ def _render_charts():
         legend=dict(orientation='h', yanchor='bottom', y=1.02)
     )
     chart_nm.plotly_chart(fig_nm, use_container_width=True)
-
 
 if st.session_state.packets_sent > 0:
     _render_charts()
