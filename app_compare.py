@@ -263,12 +263,12 @@ with st.sidebar:
     col_a, col_b = st.columns(2)
 
     start_clicked = col_a.button("▶️ Start", type="primary",
-                                  width='stretch',
+                                  use_container_width=True,
                                   disabled=st.session_state.running)
     stop_clicked  = col_b.button("🛑 Stop",
-                                  width='stretch',
+                                  use_container_width=True,
                                   disabled=not st.session_state.running)
-    reset_clicked = st.button("🔄 Reset All", width='stretch')
+    reset_clicked = st.button("🔄 Reset All", use_container_width=True)
 
     if start_clicked and selected:
         # Wipe all state so counters start fresh
@@ -474,7 +474,7 @@ def _render_charts():
                     range=[-0.1, 1.5], showgrid=False),
         legend=dict(orientation='h', yanchor='bottom', y=1.02)
     )
-    chart_ai.plotly_chart(fig_ai, width='stretch')
+    chart_ai.plotly_chart(fig_ai, use_container_width=True)
 
     # ── Normal chart: latency (primary) + packet-rate z-score (secondary) ───
     # Normalise rate_z to [0, ~0.12] range for co-display with latency
@@ -504,7 +504,7 @@ def _render_charts():
                     range=[-0.1, 1.5], showgrid=False),
         legend=dict(orientation='h', yanchor='bottom', y=1.02)
     )
-    chart_nm.plotly_chart(fig_nm, width='stretch')
+    chart_nm.plotly_chart(fig_nm, use_container_width=True)
 
 
 if st.session_state.packets_sent > 0:
@@ -550,7 +550,7 @@ def _render_route_chart():
                     range=[-0.1, 1.5], showgrid=False),
         legend=dict(orientation='h', yanchor='bottom', y=1.02)
     )
-    route_chart.plotly_chart(fig, width='stretch')
+    route_chart.plotly_chart(fig, use_container_width=True)
 
 
 if st.session_state.packets_sent > 0:
@@ -582,12 +582,12 @@ def _scorecard_table(m, switches, label):
 with sc_left:
     st.markdown("**🤖 AI Router**")
     st.dataframe(_scorecard_table(ai_m, st.session_state.ai_switches, "AI Router"),
-                 hide_index=True, width='stretch')
+                 hide_index=True, use_container_width=True)
 
 with sc_right:
     st.markdown("**🖧 Normal Router**")
     st.dataframe(_scorecard_table(nm_m, st.session_state.nm_switches, "Normal Router"),
-                 hide_index=True, width='stretch')
+                 hide_index=True, use_container_width=True)
 
 with sc_verdict:
     st.markdown("**🥇 Winner**")
@@ -675,9 +675,9 @@ def _confusion_fig(m, title):
 
 # FIX: use st.plotly_chart() inside with-column blocks, not col.plotly_chart()
 with cm_left:
-    st.plotly_chart(_confusion_fig(ai_m, "🤖 AI Router"), width='stretch')
+    st.plotly_chart(_confusion_fig(ai_m, "🤖 AI Router"), use_container_width=True)
 with cm_right:
-    st.plotly_chart(_confusion_fig(nm_m, "🖧 Normal Router"), width='stretch')
+    st.plotly_chart(_confusion_fig(nm_m, "🖧 Normal Router"), use_container_width=True)
 
 # ── Auto-rerun while simulation is live ──────────────────────────────────────
 if st.session_state.running:

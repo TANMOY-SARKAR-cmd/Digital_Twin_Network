@@ -409,6 +409,10 @@ connected_topology_dashboards: set[WebSocket] = set()
 _active_compare_ws: WebSocket | None = None
 
 
+@app.get("/health")
+def get_health():
+    return {"device": device.type, "packets_received": 0, "pps_10s": 0.0, "queue_depth": 0, "obs_threshold": obs_threshold}
+
 @app.websocket("/ws/dashboard")
 async def dashboard_endpoint(websocket: WebSocket):
     await websocket.accept()

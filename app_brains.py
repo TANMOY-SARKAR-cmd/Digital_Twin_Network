@@ -9,6 +9,8 @@ Shows the internal state of each of the 4 AI brains in real-time:
 """
 
 import streamlit as st
+import nest_asyncio
+nest_asyncio.apply()
 import asyncio
 import websockets
 import json
