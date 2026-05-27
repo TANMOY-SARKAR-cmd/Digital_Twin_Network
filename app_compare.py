@@ -9,6 +9,7 @@ Requires core_api.py to be running:
 """
 
 import streamlit as st
+from shared_config import FEATURES, PRIMARY_LATENCY_S, BACKUP_LATENCY_S
 import asyncio
 import websockets
 from websockets.exceptions import ConnectionClosedError
@@ -21,6 +22,9 @@ import threading
 import os
 import time
 from collections import deque
+import queue
+
+data_queue = queue.Queue()
 
 from streamlit.runtime.scriptrunner import add_script_run_ctx
 import nest_asyncio
@@ -36,23 +40,7 @@ st.caption("Both routers see the exact same packets. Ground truth comes from the
 # =============================================================================
 # CONSTANTS
 # =============================================================================
-FEATURES = [
-    'Flow Duration', 'Total Fwd Packets', 'Total Backward Packets',
-    'Total Length of Fwd Packets', 'Total Length of Bwd Packets',
-    'Fwd Packet Length Max', 'Fwd Packet Length Min', 'Fwd Packet Length Mean',
-    'Fwd Packet Length Std', 'Bwd Packet Length Max', 'Bwd Packet Length Min',
-    'Bwd Packet Length Mean', 'Bwd Packet Length Std', 'Flow Bytes/s',
-    'Flow Packets/s', 'Flow IAT Mean', 'Flow IAT Std', 'Flow IAT Max',
-    'Flow IAT Min', 'Fwd IAT Total', 'Bwd IAT Total', 'Fwd Header Length',
-    'Bwd Header Length', 'Fwd Packets/s', 'Bwd Packets/s', 'Min Packet Length',
-    'Max Packet Length', 'Packet Length Mean', 'Packet Length Std',
-    'Packet Length Variance', 'FIN Flag Count', 'SYN Flag Count', 'RST Flag Count',
-    'PSH Flag Count', 'ACK Flag Count', 'URG Flag Count', 'Down/Up Ratio',
-    'Average Packet Size', 'Init_Win_bytes_forward', 'Init_Win_bytes_backward'
-]
 
-PRIMARY_LATENCY_S = 0.01   # 10 ms
-BACKUP_LATENCY_S  = 0.05   # 50 ms
 HISTORY_LEN       = 80
 
 
@@ -666,8 +654,59 @@ with cm_right:
     st.plotly_chart(_confusion_fig(nm_m, "🖧 Normal Router"), use_container_width=True)
 
 # ── Auto-rerun while simulation is live ──────────────────────────────────────
+processed_queue = False
+while not data_queue.empty():
+    processed_queue = True
+    item = data_queue.get()
+
+    if item["type"] == "data":
+        result = item["result"]
+        i = item["packet_idx"]
+        ai = result["ai"]
+        nm = result["normal"]
+        gt = result["ground_truth"]
+
+        _update_confusion("ai", ai["is_attack"], gt)
+        _update_confusion("nm", nm["is_attack"], gt)
+
+        if ai["route"] != st.session_state.ai_last_route:
+            st.session_state.ai_switches += 1
+            st.session_state.ai_last_route = ai["route"]
+
+        if nm["route"] != st.session_state.nm_last_route:
+            st.session_state.nm_switches += 1
+            st.session_state.nm_last_route = nm["route"]
+
+        st.session_state.ai_errors.append(ai["error"])
+        st.session_state.ai_routes.append(ai["route"])
+        st.session_state.norm_latscores.append(nm["lat_score"])
+        st.session_state.norm_routes.append(nm["route"])
+        st.session_state.gt_history.append(1 if gt else 0)
+
+        st.session_state.ai_confidence.append(ai.get("attack_confidence", 0.0))
+        st.session_state.ai_error_deltas.append(ai.get("error_delta", 0.0))
+        st.session_state.nm_rate_zscores.append(nm.get("rate_zscore", 0.0))
+
+        if ai.get("cluster_transition"):
+            st.session_state.ai_cluster_transitions += 1
+
+        st.session_state.packets_sent = i
+        st.session_state.latest = result
+
+    elif item["type"] == "error":
+        st.session_state.latest = {"_error": item["error"]}
+        st.session_state.running = False
+        st.session_state.finished = True
+
+    elif item["type"] == "finished":
+        st.session_state.running = False
+        st.session_state.finished = True
+
 if st.session_state.running:
-    time.sleep(0.4)
+    if processed_queue:
+        time.sleep(0.1)
+    else:
+        time.sleep(0.5)
     st.rerun()
 elif st.session_state.finished:
     st.balloons()
