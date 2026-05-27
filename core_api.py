@@ -400,6 +400,7 @@ def _sanitise(payload: dict):
 # =============================================================================
 
 connected_dashboards: set[WebSocket] = set()
+connected_topology_dashboards: set[WebSocket] = set()
 
 # FIX: Only one compare session should be active at a time.  Two simultaneous
 # sessions (e.g. two browser tabs, or a Start after Reset before the old thread
@@ -417,6 +418,18 @@ async def dashboard_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except (WebSocketDisconnect, Exception):
         connected_dashboards.discard(websocket)
+
+
+
+@app.websocket("/ws/live_topology")
+async def live_topology_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    connected_topology_dashboards.add(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except (WebSocketDisconnect, Exception):
+        connected_topology_dashboards.discard(websocket)
 
 
 # ---------------------------------------------------------------------------
@@ -486,6 +499,14 @@ async def network_endpoint(websocket: WebSocket):
                 except (Exception, _TornadoWSClosed):
                     dead.add(dash)
             connected_dashboards.difference_update(dead)
+            dead_topo = set()
+            for dash in list(connected_topology_dashboards):
+                try:
+                    await dash.send_json({"route": result["route"], "is_attack": result["is_attack"]})
+                except (Exception, _TornadoWSClosed):
+                    dead_topo.add(dash)
+            connected_topology_dashboards.difference_update(dead_topo)
+
 
     except WebSocketDisconnect:
         print("Network Generator Disconnected.")

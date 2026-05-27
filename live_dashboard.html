@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Digital Twin - Live Topology</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.23.0/cytoscape.min.js"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; background-color: #f4f4f9; }
+        #cy { width: 800px; height: 500px; border: 1px solid #ccc; margin: 20px auto; background-color: white; border-radius: 8px;}
+        .status { font-size: 1.2em; font-weight: bold; margin-top: 10px; }
+        .attack-alert { color: #e74c3c; animation: blinker 1s linear infinite; }
+        @keyframes blinker { 50% { opacity: 0; } }
+    </style>
+</head>
+<body>
+    <h2>🚀 RL Agent Live Routing Policy</h2>
+    <div id="statusText" class="status">Waiting for telemetry...</div>
+    <div id="cy"></div>
+
+    <script>
+        // Initialize Cytoscape Network Graph
+        var cy = cytoscape({
+            container: document.getElementById('cy'),
+            elements: [
+                { data: { id: 'Router_A', label: 'Source (A)' } },
+                { data: { id: 'Router_B', label: 'Primary (B)' } },
+                { data: { id: 'Router_C', label: 'Backup (C)' } },
+                { data: { id: 'Server_Farm', label: 'Dest (D)' } },
+
+                // Primary Path
+                { data: { id: 'A-B', source: 'Router_A', target: 'Router_B' } },
+                { data: { id: 'B-D', source: 'Router_B', target: 'Server_Farm' } },
+
+                // Backup Path
+                { data: { id: 'A-C', source: 'Router_A', target: 'Router_C' } },
+                { data: { id: 'C-D', source: 'Router_C', target: 'Server_Farm' } },
+            ],
+            style: [
+                {
+                    selector: 'node',
+                    style: {
+                        'background-color': '#3498db',
+                        'label': 'data(label)',
+                        'color': '#fff',
+                        'text-valign': 'center',
+                        'text-outline-width': 2,
+                        'text-outline-color': '#3498db',
+                        'font-size': '14px'
+                    }
+                },
+                {
+                    selector: 'edge',
+                    style: {
+                        'width': 6,
+                        'line-color': '#ccc',
+                        'target-arrow-color': '#ccc',
+                        'target-arrow-shape': 'triangle',
+                        'curve-style': 'bezier'
+                    }
+                },
+                // Dynamic styles managed by WebSocket
+                {
+                    selector: '.active-primary',
+                    style: { 'line-color': '#2ecc71', 'target-arrow-color': '#2ecc71', 'width': 8 }
+                },
+                {
+                    selector: '.active-backup',
+                    style: { 'line-color': '#e67e22', 'target-arrow-color': '#e67e22', 'width': 8 }
+                }
+            ],
+            layout: {
+                name: 'breadthfirst',
+                directed: true,
+                padding: 10
+            }
+        });
+
+        // Connect to FastAPI WebSocket
+        const ws = new WebSocket("ws://localhost:8000/ws/live_topology");
+        const statusEl = document.getElementById('statusText');
+
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            console.log("Telemetry received:", data);
+
+            // Reset all edges to default grey
+            cy.edges().removeClass('active-primary');
+            cy.edges().removeClass('active-backup');
+
+            if(data.is_attack) {
+                statusEl.innerHTML = "<span class='attack-alert'>⚠️ CYBER ATTACK DETECTED! Rerouting...</span>";
+            } else {
+                statusEl.innerHTML = "<span style='color:#2ecc71;'>✅ Network Stable</span>";
+            }
+
+            // Route 0 = Primary, Route 1 = Backup
+            if(data.route === 0) {
+                cy.getElementById('A-B').addClass('active-primary');
+                cy.getElementById('B-D').addClass('active-primary');
+            } else {
+                cy.getElementById('A-C').addClass('active-backup');
+                cy.getElementById('C-D').addClass('active-backup');
+            }
+        };
+
+        ws.onopen = () => { statusEl.innerText = "🟢 Connected to Digital Twin"; };
+        ws.onclose = () => { statusEl.innerText = "🔴 Disconnected"; };
+    </script>
+</body>
+</html>
