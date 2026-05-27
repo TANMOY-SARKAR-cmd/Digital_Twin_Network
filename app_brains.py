@@ -10,6 +10,9 @@ Shows the internal state of each of the 4 AI brains in real-time:
 
 import streamlit as st
 import nest_asyncio
+import threading
+from streamlit.runtime.scriptrunner import add_script_run_ctx
+
 nest_asyncio.apply()
 import asyncio
 import websockets
@@ -369,6 +372,14 @@ async def listen_brains():
         st.session_state.brains_stop = False
         render_all(st.session_state.brains_frame)
 
+def _start_brains_thread():
+    def _worker():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(listen_brains())
+    t = threading.Thread(target=_worker, daemon=True)
+    add_script_run_ctx(t)
+    t.start()
 
 # ── Connect / Disconnect buttons ──────────────────────────────────────
 st.divider()
@@ -376,7 +387,7 @@ bc, bd = st.columns(2)
 with bc:
     if st.button("🔌 Connect Brains", disabled=st.session_state.brains_conn):
         st.session_state.brains_conn = True
-        asyncio.run(listen_brains())
+        _start_brains_thread()
 with bd:
     if st.button("⏏️ Disconnect", disabled=not st.session_state.brains_conn):
         st.session_state.brains_stop = True
@@ -384,6 +395,10 @@ with bd:
 if not st.session_state.brains_auto:
     st.session_state.brains_auto = True
     st.session_state.brains_conn = True
-    asyncio.run(listen_brains())
+    _start_brains_thread()
 elif not status:
     render_all(st.session_state.brains_frame)
+
+if st.session_state.brains_conn:
+    time.sleep(0.4)
+    st.rerun()
