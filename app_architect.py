@@ -7,6 +7,8 @@ import asyncio
 import websockets
 import json
 import time
+import threading
+from streamlit.runtime.scriptrunner import add_script_run_ctx
 
 # FIX: nest_asyncio allows asyncio.run() to work inside Streamlit's already-running
 # event loop. Without this, clicking Start Simulation raises:
@@ -60,62 +62,83 @@ def parse_latency(val):
 
 
 # --- 3. Simulation Engine ---
-async def start_injection(df, p_lat, b_lat):
+async def start_injection(file_path, p_lat, b_lat):
     uri = "ws://localhost:8000/ws/network"
-    total = len(df)
 
     progress_bar = st.progress(0)
     status_text = st.empty()
     time_text = st.empty()
 
+    # We don't have the exact total up front easily without scanning,
+    # but we can omit or estimate. For simplicity, we just won't show exact progress % if total is unknown.
+    # Alternatively we can just read the length first but that loads the whole file or requires a pass.
+    # We will just iterate without a perfect progress bar or assume an arbitrary large number.
+    # Actually, we can get total lines using a quick generator or wc if needed, but
+    # let's just make the progress bar an indeterminate spinner or omit it.
+
+    # Let's count rows first to keep the progress bar working
+    total = sum(1 for _ in open(file_path)) - 1 # rough row count
+
     try:
         async with websockets.connect(uri) as websocket:
-            for i in range(total):
-                if st.session_state.stop_simulation:
-                    st.warning("🛑 Simulation manually terminated.")
-                    break
+            i = 0
+            for chunk in pd.read_csv(file_path, chunksize=5000):
+                chunk.columns = [c.strip() for c in chunk.columns]
+                for row_idx in range(len(chunk)):
+                    if st.session_state.stop_simulation:
+                        st.warning("🛑 Simulation manually terminated.")
+                        return
 
-                row = df.iloc[i]
-                features = pd.to_numeric(row[FEATURES], errors='coerce').fillna(0).tolist()
-                vol = float(
-                    row.get('Total Length of Fwd Packets', 0) +
-                    row.get('Total Length of Bwd Packets', 0)
-                )
+                    row = chunk.iloc[row_idx]
+                    features = pd.to_numeric(row[FEATURES], errors='coerce').fillna(0).tolist()
+                    vol = float(
+                        row.get('Total Length of Fwd Packets', 0) +
+                        row.get('Total Length of Bwd Packets', 0)
+                    )
 
-                label = str(row.get('Label', 'BENIGN')).strip().upper()
-                is_attack = "BENIGN" not in label
-                lat_a = 0.95 if is_attack else np.random.uniform(p_lat, p_lat + 0.02)
+                    label = str(row.get('Label', 'BENIGN')).strip().upper()
+                    is_attack = "BENIGN" not in label
+                    lat_a = 0.95 if is_attack else np.random.uniform(p_lat, p_lat + 0.02)
 
-                payload = {"features": features, "volume": vol, "lat_a": lat_a, "lat_b": b_lat}
-                await websocket.send(json.dumps(payload))
-                await websocket.recv()
+                    payload = {"features": features, "volume": vol, "lat_a": lat_a, "lat_b": b_lat}
+                    await websocket.send(json.dumps(payload))
+                    await websocket.recv()
 
-                prog = (i + 1) / total
-                progress_bar.progress(prog)
+                    i += 1
 
-                rem_packets = total - (i + 1)
-                rem_seconds = rem_packets * delay_per_packet
-                hrs, rem = divmod(int(rem_seconds), 3600)
-                mins, secs = divmod(rem, 60)
+                    if total > 0:
+                        prog = i / total
+                        progress_bar.progress(min(prog, 1.0))
 
-                status_text.text(f"Injecting: {i+1}/{total} | Type: {label}")
-                time_text.markdown(f"**⏱️ Time Left:** {hrs}h {mins}m {secs}s")
+                        rem_packets = total - i
+                        rem_seconds = rem_packets * delay_per_packet
+                        hrs, rem = divmod(int(rem_seconds), 3600)
+                        mins, secs = divmod(rem, 60)
 
-                await asyncio.sleep(delay_per_packet)
+                        status_text.text(f"Injecting: {i}/{total} | Type: {label}")
+                        time_text.markdown(f"**⏱️ Time Left:** {hrs}h {mins}m {secs}s")
+
+                    await asyncio.sleep(delay_per_packet)
 
     except Exception as e:
         st.error(f"Core API connection failed: {e}")
 
+
+def run_injection_thread(file_path, p_lat, b_lat):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(start_injection(file_path, p_lat, b_lat))
 
 # Controls
 c1, c2 = st.columns(2)
 if c1.button("▶️ Start Simulation", type="primary", use_container_width=True):
     st.session_state.stop_simulation = False
     if selected_dataset:
-        df_sim = pd.read_csv(f"data/{selected_dataset}")
-        df_sim.columns = [c.strip() for c in df_sim.columns]
-        # FIX: nest_asyncio (applied above) makes this safe inside Streamlit's loop.
-        asyncio.run(start_injection(df_sim, parse_latency(primary_lat), parse_latency(backup_lat)))
+        file_path = f"data/{selected_dataset}"
+        # Start in background instead of blocking:
+        t = threading.Thread(target=run_injection_thread, args=(file_path, parse_latency(primary_lat), parse_latency(backup_lat)), daemon=True)
+        add_script_run_ctx(t)
+        t.start()
     else:
         st.warning("Please select a dataset first.")
 

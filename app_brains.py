@@ -343,37 +343,20 @@ async def listen_brains():
                 raw  = await ws.recv()
                 data = json.loads(raw)
 
-                st.session_state.obs_h.append({
-                    "score":     data.get("error", 0.0),
-                    "is_attack": data.get("is_attack", False),
-                    "threshold": data.get("obs_threshold", DEFAULT_THRESHOLD),
+                data_queue.put({
+                    "type": "data",
+                    "data": data
                 })
-                st.session_state.proph_h.append({
-                    "forecast": data.get("forecast", 0.0),
-                })
-                st.session_state.analyst_h.append({
-                    "traffic_type": data.get("traffic_type", 0.0),
-                    "cluster_id":   data.get("cluster_id", "?"),
-                })
-                st.session_state.manager_h.append({
-                    "route": data.get("route", 0),
-                    "lat_a": data.get("lat_a", 0.0),
-                    "lat_b": data.get("lat_b", 0.05),
-                })
-
-                for key in ["obs_h", "proph_h", "analyst_h", "manager_h"]:
-                    while len(st.session_state[key]) > MAX_HISTORY:
-                        st.session_state[key].pop(0)
-
-                st.session_state.brains_frame += 1
-                render_all(st.session_state.brains_frame)
 
     except Exception as e:
-        st.error(f"Connection lost: {e}")
+        data_queue.put({
+            "type": "error",
+            "error": str(e)
+        })
     finally:
-        st.session_state.brains_conn = False
-        st.session_state.brains_stop = False
-        render_all(st.session_state.brains_frame)
+        data_queue.put({
+            "type": "finished"
+        })
 
 def _start_brains_thread():
     def _worker():

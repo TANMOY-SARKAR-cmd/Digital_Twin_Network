@@ -1,4 +1,3 @@
-import sqlite3
 import random
 import time
 import threading
@@ -6,14 +5,11 @@ import threading
 class TelemetryPipeline:
     """
     Simulates a NetFlow/sFlow ingest pipeline.
-    Captures live traffic states and stores them in a fast buffer (SQLite here)
+    Captures live traffic states and stores them in a fast buffer
     for the RL agent to query link utilization.
     """
     def __init__(self, db_path=":memory:"):
-        self.db_path = db_path
-        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        self.cursor = self.conn.cursor()
-        self._setup_db()
+        self.buffer = __import__('collections').deque(maxlen=20000)
 
         # Valid links in our mock topology
         self.links = [
@@ -23,25 +19,6 @@ class TelemetryPipeline:
             ("Router_C", "Router_D"),
             ("Router_D", "Server_Farm")
         ]
-
-    def _setup_db(self):
-        """Creates the schema for fast time-series ingest."""
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS telemetry (
-                timestamp REAL,
-                source_ip TEXT,
-                dest_ip TEXT,
-                link_source TEXT,
-                link_target TEXT,
-                bytes_sec REAL
-            )
-        ''')
-        # Index for fast retrieval of latest records
-        self.cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_timestamp
-            ON telemetry(timestamp)
-        ''')
-        self.conn.commit()
 
     def generate_mock_netflow(self):
         """
@@ -73,17 +50,8 @@ class TelemetryPipeline:
 
     def ingest_telemetry(self, records):
         """Batch inserts the streaming telemetry."""
-        self.cursor.executemany('''
-            INSERT INTO telemetry (timestamp, source_ip, dest_ip, link_source, link_target, bytes_sec)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', records)
-        self.conn.commit()
-
-        # Housekeeping: prune old records to keep the buffer fast
-        # Only keep the last 60 seconds of data
-        prune_time = time.time() - 60
-        self.cursor.execute('DELETE FROM telemetry WHERE timestamp < ?', (prune_time,))
-        self.conn.commit()
+        for r in records:
+            self.buffer.append(r)
 
     def get_latest_utilization(self):
         """
@@ -91,23 +59,18 @@ class TelemetryPipeline:
         Returns the aggregated bandwidth utilization (bytes/sec) per link
         over the last 5 seconds to calculate the RL state observation.
         """
-        cutoff_time = time.time() - 5
+        cutoff = time.time() - 5
+        recent = [r for r in self.buffer if r[0] >= cutoff]
 
-        # Aggregate bytes per second for each link in the last 5 seconds
-        self.cursor.execute('''
-            SELECT link_source, link_target, SUM(bytes_sec) / 5.0 as avg_bytes_sec
-            FROM telemetry
-            WHERE timestamp >= ?
-            GROUP BY link_source, link_target
-        ''', (cutoff_time,))
+        sums = {}
+        for r in recent:
+            # r: (now, src_ip, dst_ip, link_src, link_target, bytes)
+            link_id = f"{r[3]}-{r[4]}"
+            sums[link_id] = sums.get(link_id, 0) + r[5]
 
-        results = self.cursor.fetchall()
-
-        # Format as a dictionary for easy access by the AI
         utilization = {}
-        for row in results:
-            link_id = f"{row[0]}-{row[1]}"
-            utilization[link_id] = round(row[2], 2)
+        for link_id, total_bytes in sums.items():
+            utilization[link_id] = round(total_bytes / 5.0, 2)
 
         return utilization
 
