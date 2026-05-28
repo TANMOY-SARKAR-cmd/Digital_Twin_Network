@@ -228,7 +228,7 @@ def _ai_inference(
             route=0, is_attack=False, attack_confidence=0.0,
             error=0.0, error_delta=0.0, forecast_deviation=0.0,
             cluster_id=0, cluster_transition=False, traffic_type=0.0,
-            forecast_raw=0.0,
+            forecast_raw=0.0,forecast_valid=True,
         )
 
     # ── Prepare tensors ──────────────────────────────────────────────────────
@@ -257,6 +257,7 @@ def _ai_inference(
         # ── Prophet: forecast vs actual deviation ───────────────────────────
         forecast_raw = prophet(v_seq).item()         # raw scaled volume
         # inverse-transform to get actual volume units
+        forecast_valid = True
         try:
             actual_vol_scaled = prophet_scaler.transform(
                 [[np.nan_to_num(np.log1p(raw_vol), nan=0.0)]])[0][0]
@@ -496,7 +497,7 @@ async def network_endpoint(websocket: WebSocket):
             packet_timestamps.append(time.time())
             sanitise_result = _sanitise(payload)
             if isinstance(sanitise_result, dict):
-                await websocket.send_json(ErrorResponse(**sanitise_result).model_dump())
+                await websocket.send_json(sanitise_result)
                 continue
             features, raw_vol, scaled_feat, vol_scaled = sanitise_result
             seq_buf.append(scaled_feat)
@@ -614,6 +615,7 @@ async def compare_endpoint(websocket: WebSocket):
         route=0, is_attack=False, attack_confidence=0.0,
         error=0.0, error_delta=0.0, forecast_deviation=0.0,
         cluster_id=0, cluster_transition=False, traffic_type=0.0,
+        forecast_valid=True,
     )
 
     # Pre-fill vol_buf
@@ -633,7 +635,7 @@ async def compare_endpoint(websocket: WebSocket):
             packet_timestamps.append(time.time())
             sanitise_result = _sanitise(payload)
             if isinstance(sanitise_result, dict):
-                await websocket.send_json(ErrorResponse(**sanitise_result).model_dump())
+                await websocket.send_json(sanitise_result)
                 continue
             features, raw_vol, scaled_feat, vol_scaled = sanitise_result
 
@@ -671,30 +673,30 @@ async def compare_endpoint(websocket: WebSocket):
             # already-closed socket → RuntimeError crashes the uvicorn worker.
             # Catching it here lets the session end silently instead.
             try:
-                payload = ComparePayload(
-                    packet_index=packet_index,
-                    ground_truth=ground_truth,
-                    ai=CompareAIResult(
-                        route=ai_result["route"],
-                        is_attack=ai_result["is_attack"],
-                        attack_confidence=ai_result["attack_confidence"],
-                        error=ai_result["error"],
-                        error_delta=ai_result["error_delta"],
-                        forecast_deviation=ai_result["forecast_deviation"],
-                        forecast_valid=ai_result["forecast_valid"],
-                        cluster_id=ai_result["cluster_id"],
-                        cluster_transition=ai_result["cluster_transition"],
-                        traffic_type=ai_result["traffic_type"]
-                    ),
-                    normal=CompareNormalResult(
-                        route=normal_result["route"],
-                        is_attack=normal_result["is_attack"],
-                        lat_score=normal_result["lat_score"],
-                        vol_zscore=normal_result["vol_zscore"],
-                        rate_zscore=normal_result["rate_zscore"]
-                    )
-                )
-                await websocket.send_json(payload.model_dump())
+                payload = {
+                    "packet_index": packet_index,
+                    "ground_truth": ground_truth,
+                    "ai": {
+                        "route": ai_result["route"],
+                        "is_attack": ai_result["is_attack"],
+                        "attack_confidence": ai_result["attack_confidence"],
+                        "error": ai_result["error"],
+                        "error_delta": ai_result["error_delta"],
+                        "forecast_deviation": ai_result["forecast_deviation"],
+                        "forecast_valid": ai_result["forecast_valid"],
+                        "cluster_id": ai_result["cluster_id"],
+                        "cluster_transition": ai_result["cluster_transition"],
+                        "traffic_type": ai_result["traffic_type"]
+                    },
+                    "normal": {
+                        "route": normal_result["route"],
+                        "is_attack": normal_result["is_attack"],
+                        "lat_score": normal_result["lat_score"],
+                        "vol_zscore": normal_result["vol_zscore"],
+                        "rate_zscore": normal_result["rate_zscore"]
+                    }
+                }
+                await websocket.send_json(payload)
             except (RuntimeError, WebSocketDisconnect):
                 # Socket was closed (superseded by a newer session) — exit cleanly
                 break
