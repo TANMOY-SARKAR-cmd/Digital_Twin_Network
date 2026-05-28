@@ -415,20 +415,18 @@ while not data_queue.empty():
                 st.session_state[key].pop(0)
 
         st.session_state.brains_frame += 1
-        render_all(st.session_state.brains_frame)
+
     elif item["type"] == "error":
         st.error(f"Connection lost: {item['error']}")
         st.session_state.brains_conn = False
         st.session_state.brains_stop = False
-        render_all(st.session_state.brains_frame)
     elif item["type"] == "finished":
         st.session_state.brains_conn = False
         st.session_state.brains_stop = False
-        render_all(st.session_state.brains_frame)
+
+if processed_queue or not status:
+    render_all(st.session_state.brains_frame)
 
 if st.session_state.brains_conn:
-    if processed_queue:
-        time.sleep(0.1)
-    else:
-        time.sleep(0.5)
+    time.sleep(0.1 if processed_queue else 0.5)
     st.rerun()
