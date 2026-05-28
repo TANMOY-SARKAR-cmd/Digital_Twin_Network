@@ -28,7 +28,7 @@ if 'stop_simulation' not in st.session_state:
 st.header("1. Router Configuration")
 col1, col2, col3 = st.columns(3)
 with col1:
-    primary_bw = st.text_input("Primary Route Bandwidth", "1 Gbps")
+    primary_bw = st.text_input("Primary Route Bandwidth", "1 Gbps", key="primary_bw_val")
     primary_lat = st.text_input("Primary Base Latency", "10ms")
 with col2:
     backup_bw = st.text_input("Backup Route Bandwidth", "100 Mbps")
@@ -98,7 +98,20 @@ async def start_injection(file_path, p_lat, b_lat):
 
                     label = str(row.get('Label', 'BENIGN')).strip().upper()
                     is_attack = "BENIGN" not in label
-                    lat_a = 0.95 if is_attack else np.random.uniform(p_lat, p_lat + 0.02)
+
+                    # Convert primary_bw string (e.g., "1 Gbps") to bytes per second for the math
+                    bw_str = st.session_state.get('primary_bw_val', '1000000000') # default 1Gbps
+                    LINK_CAPACITY = float(re.sub(r'[^\d.]', '', bw_str)) * 125000 # Convert bits to bytes
+
+                    if vol >= LINK_CAPACITY:
+                        lat_a = 0.99
+                    else:
+                        utilization = vol / LINK_CAPACITY
+                        lat_a = p_lat / (1 - utilization)
+                        lat_a = min(lat_a, 0.95)
+
+                    if is_attack:
+                        lat_a = 0.95
 
                     payload = {"features": features, "volume": vol, "lat_a": lat_a, "lat_b": b_lat}
                     await websocket.send(json.dumps(payload))
