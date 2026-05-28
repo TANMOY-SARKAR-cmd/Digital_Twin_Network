@@ -63,6 +63,22 @@ def parse_latency(val):
     nums = re.findall(r"\d+", str(val))
     return float(nums[0]) / 1000 if nums else 0.01
 
+def parse_bandwidth(bw_str):
+    # Extract the numeric value
+    val_str = re.sub(r'[^\d.]', '', str(bw_str))
+    val = float(val_str) if val_str else 1.0
+
+    # Apply the correct unit multiplier to get Bytes/sec
+    bw_upper = str(bw_str).upper()
+    if "G" in bw_upper:
+        return val * 125000000  # Gbps to Bytes/s
+    elif "M" in bw_upper:
+        return val * 125000     # Mbps to Bytes/s
+    elif "K" in bw_upper:
+        return val * 125        # Kbps to Bytes/s
+    else:
+        return val              # Assume Bytes/s
+
 
 # --- 3. Simulation Engine ---
 async def start_injection(file_path, p_lat, b_lat):
@@ -99,9 +115,8 @@ async def start_injection(file_path, p_lat, b_lat):
                     label = str(row.get('Label', 'BENIGN')).strip().upper()
                     is_attack = "BENIGN" not in label
 
-                    # Convert primary_bw string (e.g., "1 Gbps") to bytes per second for the math
-                    bw_str = st.session_state.get('primary_bw_val', '1000000000') # default 1Gbps
-                    LINK_CAPACITY = float(re.sub(r'[^\d.]', '', bw_str)) * 125000 # Convert bits to bytes
+                    bw_str = st.session_state.get('primary_bw_val', '1 Gbps')
+                    LINK_CAPACITY = parse_bandwidth(bw_str)
 
                     if vol >= LINK_CAPACITY:
                         lat_a = 0.99
