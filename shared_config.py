@@ -10,7 +10,7 @@ FEATURES = [
     'Max Packet Length', 'Packet Length Mean', 'Packet Length Std',
     'Packet Length Variance', 'FIN Flag Count', 'SYN Flag Count', 'RST Flag Count',
     'PSH Flag Count', 'ACK Flag Count', 'URG Flag Count', 'Down/Up Ratio',
-    'Average Packet Size', 'Avg Fwd Segment Size', 'Avg Bwd Segment Size'
+    'Average Packet Size', 'Init_Win_bytes_forward', 'Init_Win_bytes_backward'
 ]
 
 PRIMARY_LATENCY_S = 0.01   # 10 ms

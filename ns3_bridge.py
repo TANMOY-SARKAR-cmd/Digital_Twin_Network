@@ -1,4 +1,5 @@
 # ns3_bridge.py
+from shared_config import FEATURES
 import asyncio
 import websockets
 import json
@@ -7,15 +8,7 @@ import numpy as np
 import glob
 import os
 
-FEATURES = [
-    'Flow Duration', 'Total Fwd Packets', 'Total Backward Packets', 'Total Length of Fwd Packets', 'Total Length of Bwd Packets',
-    'Fwd Packet Length Max', 'Fwd Packet Length Min', 'Fwd Packet Length Mean', 'Fwd Packet Length Std', 'Bwd Packet Length Max',
-    'Bwd Packet Length Min', 'Bwd Packet Length Mean', 'Bwd Packet Length Std', 'Flow Bytes/s', 'Flow Packets/s', 'Flow IAT Mean',
-    'Flow IAT Std', 'Flow IAT Max', 'Flow IAT Min', 'Fwd IAT Total', 'Bwd IAT Total', 'Fwd Header Length', 'Bwd Header Length',
-    'Fwd Packets/s', 'Bwd Packets/s', 'Min Packet Length', 'Max Packet Length', 'Packet Length Mean', 'Packet Length Std',
-    'Packet Length Variance', 'FIN Flag Count', 'SYN Flag Count', 'RST Flag Count', 'PSH Flag Count', 'ACK Flag Count',
-    'URG Flag Count', 'Down/Up Ratio', 'Average Packet Size', 'Init_Win_bytes_forward', 'Init_Win_bytes_backward'
-]
+
 
 
 async def simulate_network():
@@ -32,6 +25,13 @@ async def simulate_network():
 
     async with websockets.connect(uri) as websocket:
         i = 0
+
+    with open(csv_files[0], 'r') as f_check:
+        first_line = f_check.readline()
+        if 'version https://git-lfs.github.com/spec/v1' in first_line:
+            print("❌ Dataset is a Git LFS pointer. Please run 'git lfs pull' to download the actual CSV data.")
+            import sys
+            sys.exit(1)
         for chunk in pd.read_csv(csv_files[0], chunksize=5000):
             chunk.columns = chunk.columns.str.strip()
             chunk = chunk.replace(['Infinity', 'inf', 'NaN'], np.nan).fillna(0)
