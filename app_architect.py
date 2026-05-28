@@ -81,7 +81,7 @@ def parse_bandwidth(bw_str):
 
 
 # --- 3. Simulation Engine ---
-async def start_injection(file_path, p_lat, b_lat):
+async def start_injection(file_path, p_lat, b_lat, link_capacity):
     uri = "ws://localhost:8000/ws/network"
 
 
@@ -115,13 +115,10 @@ async def start_injection(file_path, p_lat, b_lat):
                     label = str(row.get('Label', 'BENIGN')).strip().upper()
                     is_attack = "BENIGN" not in label
 
-                    bw_str = st.session_state.get('primary_bw_val', '1 Gbps')
-                    LINK_CAPACITY = parse_bandwidth(bw_str)
-
-                    if vol >= LINK_CAPACITY:
+                    if vol >= link_capacity:
                         lat_a = 0.99
                     else:
-                        utilization = vol / LINK_CAPACITY
+                        utilization = vol / link_capacity
                         lat_a = p_lat / (1 - utilization)
                         lat_a = min(lat_a, 0.95)
 
@@ -155,10 +152,10 @@ async def start_injection(file_path, p_lat, b_lat):
         sim_queue.put({"type": "error", "text": f"Core API connection failed: {e}"})
 
 
-def run_injection_thread(file_path, p_lat, b_lat):
+def run_injection_thread(file_path, p_lat, b_lat, link_capacity):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(start_injection(file_path, p_lat, b_lat))
+    loop.run_until_complete(start_injection(file_path, p_lat, b_lat, link_capacity))
 
 # Controls
 c1, c2 = st.columns(2)
@@ -169,8 +166,13 @@ if c1.button("▶️ Start Simulation", type="primary", use_container_width=True
         sim_queue.get()
     if selected_dataset:
         file_path = f"data/{selected_dataset}"
+
+        # Parse it safely in the main thread
+        bw_str = st.session_state.get('primary_bw_val', '1 Gbps')
+        capacity = parse_bandwidth(bw_str)
+
         # Start in background instead of blocking:
-        t = threading.Thread(target=run_injection_thread, args=(file_path, parse_latency(primary_lat), parse_latency(backup_lat)), daemon=True)
+        t = threading.Thread(target=run_injection_thread, args=(file_path, parse_latency(primary_lat), parse_latency(backup_lat), capacity), daemon=True)
         add_script_run_ctx(t)
         t.start()
     else:
