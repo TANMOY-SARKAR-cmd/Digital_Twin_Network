@@ -8,6 +8,9 @@ import websockets
 import json
 import time
 import threading
+import queue
+
+sim_queue = queue.Queue()
 from streamlit.runtime.scriptrunner import add_script_run_ctx
 
 # FIX: nest_asyncio allows asyncio.run() to work inside Streamlit's already-running
@@ -65,9 +68,6 @@ def parse_latency(val):
 async def start_injection(file_path, p_lat, b_lat):
     uri = "ws://localhost:8000/ws/network"
 
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    time_text = st.empty()
 
     # We don't have the exact total up front easily without scanning,
     # but we can omit or estimate. For simplicity, we just won't show exact progress % if total is unknown.
@@ -86,7 +86,7 @@ async def start_injection(file_path, p_lat, b_lat):
                 chunk.columns = [c.strip() for c in chunk.columns]
                 for row_idx in range(len(chunk)):
                     if st.session_state.stop_simulation:
-                        st.warning("🛑 Simulation manually terminated.")
+                        sim_queue.put({"type": "warning", "text": "🛑 Simulation manually terminated."})
                         return
 
                     row = chunk.iloc[row_idx]
@@ -121,20 +121,23 @@ async def start_injection(file_path, p_lat, b_lat):
 
                     if total > 0:
                         prog = i / total
-                        progress_bar.progress(min(prog, 1.0))
-
                         rem_packets = total - i
                         rem_seconds = rem_packets * delay_per_packet
                         hrs, rem = divmod(int(rem_seconds), 3600)
                         mins, secs = divmod(rem, 60)
 
-                        status_text.text(f"Injecting: {i}/{total} | Type: {label}")
-                        time_text.markdown(f"**⏱️ Time Left:** {hrs}h {mins}m {secs}s")
+                        sim_queue.put({
+                            "type": "update",
+                            "progress": min(prog, 1.0),
+                            "text": f"Injecting: {i}/{total} | Type: {label}",
+                            "time": f"**⏱️ Time Left:** {hrs}h {mins}m {secs}s"
+                        })
 
                     await asyncio.sleep(delay_per_packet)
+            sim_queue.put({"type": "completed"})
 
     except Exception as e:
-        st.error(f"Core API connection failed: {e}")
+        sim_queue.put({"type": "error", "text": f"Core API connection failed: {e}"})
 
 
 def run_injection_thread(file_path, p_lat, b_lat):
@@ -146,6 +149,9 @@ def run_injection_thread(file_path, p_lat, b_lat):
 c1, c2 = st.columns(2)
 if c1.button("▶️ Start Simulation", type="primary", use_container_width=True):
     st.session_state.stop_simulation = False
+    st.session_state.sim_active = True
+    while not sim_queue.empty():
+        sim_queue.get()
     if selected_dataset:
         file_path = f"data/{selected_dataset}"
         # Start in background instead of blocking:
@@ -157,3 +163,38 @@ if c1.button("▶️ Start Simulation", type="primary", use_container_width=True
 
 if c2.button("🛑 Stop Injection", use_container_width=True):
     st.session_state.stop_simulation = True
+    st.session_state.sim_active = False
+if st.session_state.get('sim_active', False):
+    # Initialize session state for UI updates
+    if 'sim_progress' not in st.session_state:
+        st.session_state.sim_progress = 0.0
+    if 'sim_text' not in st.session_state:
+        st.session_state.sim_text = ""
+    if 'sim_time' not in st.session_state:
+        st.session_state.sim_time = ""
+
+    # Process all queued updates
+    while not sim_queue.empty():
+        update = sim_queue.get()
+        if update.get("type") == "update":
+            st.session_state.sim_progress = update["progress"]
+            st.session_state.sim_text = update["text"]
+            st.session_state.sim_time = update["time"]
+        elif update.get("type") == "warning":
+            st.warning(update["text"])
+            st.session_state.sim_active = False
+        elif update.get("type") == "error":
+            st.error(update["text"])
+            st.session_state.sim_active = False
+        elif update.get("type") == "completed":
+            st.success("✅ Simulation completed successfully.")
+            st.session_state.sim_active = False
+
+    # Render current state
+    st.progress(st.session_state.sim_progress)
+    st.text(st.session_state.sim_text)
+    st.markdown(st.session_state.sim_time)
+
+    time.sleep(0.5)
+    if st.session_state.get('sim_active', False):
+        st.rerun()
