@@ -46,15 +46,13 @@ async def test_api():
                 net_data = json.loads(res_net)
                 comp_data = json.loads(res_comp)
 
-                if "error" in net_data and isinstance(net_data["error"], str):
-                    if "KeyError" in net_data["error"] or "UnboundLocalError" in net_data["error"]:
-                        print(f"Error in network response: {net_data['error']}")
-                        raise Exception("Backend error")
+                if "error" in net_data:
+                    print(f"Error in network response: {net_data['error']}")
+                    raise Exception("Backend error")
 
-                if "error" in comp_data and isinstance(comp_data["error"], str):
-                    if "KeyError" in comp_data["error"] or "UnboundLocalError" in comp_data["error"]:
-                        print(f"Error in compare response: {comp_data['error']}")
-                        raise Exception("Backend error")
+                if "error" in comp_data:
+                    print(f"Error in compare response: {comp_data['error']}")
+                    raise Exception("Backend error")
 
                 print(f"Packet {i+1} processed successfully")
         print("Test passed 100%")
