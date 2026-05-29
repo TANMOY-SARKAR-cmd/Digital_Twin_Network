@@ -28,9 +28,6 @@ selected_dataset = os.getenv("SELECTED_DATASET", "")
 _sim_speed   = max(1, int(os.getenv("SIM_SPEED", "2")))
 _delay_per_packet = 1.0 / _sim_speed
 
-
-
-
 async def inject_traffic():
     uri = "ws://localhost:8000/ws/network"
     target_csv = (
@@ -50,7 +47,8 @@ async def inject_traffic():
             print("❌ Dataset is a Git LFS pointer. Please run 'git lfs pull' to download the actual CSV data.")
             import sys
             sys.exit(1)
-    print("✅ Headers cleaned. Connecting...")
+
+    print("✅ LFS check passed. Connecting...")
 
     async with websockets.connect(uri) as websocket:
         i = 0
@@ -60,7 +58,6 @@ async def inject_traffic():
 
             for row_idx in range(len(chunk)):
                 row = chunk.iloc[row_idx]
-
                 features = pd.to_numeric(row[FEATURES], errors='coerce').fillna(0).astype(float).values.tolist()
                 vol = float(row.get('Total Length of Fwd Packets', 0) + row.get('Total Length of Bwd Packets', 0))
 
@@ -72,18 +69,12 @@ async def inject_traffic():
 
                 if is_attack:
                     print(f"🔥 Packet {i}: ATTACK ({raw_label}) -> lat_a: {lat_a}")
-                else:
-                    # Optional: minimal logging for benign packets so the console isn't totally blind
-                    if i % 1000 == 0:
-                        print(f"✅ Packet {i}: BENIGN injected.")
 
                 payload = {"features": features, "volume": vol, "lat_a": lat_a, "lat_b": lat_b}
                 await websocket.send(json.dumps(payload))
                 await websocket.recv()
-
-                i += 1
                 await asyncio.sleep(_delay_per_packet)
-
+                i += 1
 
 if __name__ == "__main__":
     asyncio.run(inject_traffic())
