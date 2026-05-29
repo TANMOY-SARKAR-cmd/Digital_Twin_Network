@@ -50,30 +50,39 @@ async def inject_traffic():
             print("❌ Dataset is a Git LFS pointer. Please run 'git lfs pull' to download the actual CSV data.")
             import sys
             sys.exit(1)
-    df = pd.read_csv(target_csv)
-    df.columns = [c.strip() for c in df.columns]
-    df = df.replace(['Infinity', 'inf', 'NaN'], np.nan).fillna(0)
     print("✅ Headers cleaned. Connecting...")
 
     async with websockets.connect(uri) as websocket:
-        for i in range(len(df)):
-            row = df.iloc[i]
-            features = pd.to_numeric(row[FEATURES], errors='coerce').fillna(0).astype(float).values.tolist()
-            vol = float(row.get('Total Length of Fwd Packets', 0) + row.get('Total Length of Bwd Packets', 0))
+        i = 0
+        for chunk in pd.read_csv(target_csv, chunksize=5000):
+            chunk.columns = [c.strip() for c in chunk.columns]
+            chunk = chunk.replace(['Infinity', 'inf', 'NaN'], np.nan).fillna(0)
 
-            raw_label = str(row.get('Label', 'BENIGN')).strip().upper()
-            is_attack = raw_label != 'BENIGN'
+            for row_idx in range(len(chunk)):
+                row = chunk.iloc[row_idx]
 
-            lat_a = 0.95 if is_attack else np.random.uniform(primary_latency_base, primary_latency_base + 0.02)
-            lat_b = backup_latency_base
+                features = pd.to_numeric(row[FEATURES], errors='coerce').fillna(0).astype(float).values.tolist()
+                vol = float(row.get('Total Length of Fwd Packets', 0) + row.get('Total Length of Bwd Packets', 0))
 
-            if is_attack:
-                print(f"🔥 row {i}: ATTACK ({raw_label}) -> lat_a: {lat_a}")
+                raw_label = str(row.get('Label', 'BENIGN')).strip().upper()
+                is_attack = raw_label != 'BENIGN'
 
-            payload = {"features": features, "volume": vol, "lat_a": lat_a, "lat_b": lat_b}
-            await websocket.send(json.dumps(payload))
-            await websocket.recv()
-            await asyncio.sleep(_delay_per_packet)
+                lat_a = 0.95 if is_attack else np.random.uniform(primary_latency_base, primary_latency_base + 0.02)
+                lat_b = backup_latency_base
+
+                if is_attack:
+                    print(f"🔥 Packet {i}: ATTACK ({raw_label}) -> lat_a: {lat_a}")
+                else:
+                    # Optional: minimal logging for benign packets so the console isn't totally blind
+                    if i % 1000 == 0:
+                        print(f"✅ Packet {i}: BENIGN injected.")
+
+                payload = {"features": features, "volume": vol, "lat_a": lat_a, "lat_b": lat_b}
+                await websocket.send(json.dumps(payload))
+                await websocket.recv()
+
+                i += 1
+                await asyncio.sleep(_delay_per_packet)
 
 
 if __name__ == "__main__":
