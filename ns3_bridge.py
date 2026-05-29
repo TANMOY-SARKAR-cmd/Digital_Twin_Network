@@ -23,15 +23,15 @@ async def simulate_network():
 
     print(f"📡 NS-3 Bridge Started. Injecting dataset: {csv_files[0]}")
 
-    async with websockets.connect(uri) as websocket:
-        i = 0
-
     with open(csv_files[0], 'r') as f_check:
         first_line = f_check.readline()
         if 'version https://git-lfs.github.com/spec/v1' in first_line:
             print("❌ Dataset is a Git LFS pointer. Please run 'git lfs pull' to download the actual CSV data.")
             import sys
             sys.exit(1)
+
+    async with websockets.connect(uri) as websocket:
+        i = 0
         for chunk in pd.read_csv(csv_files[0], chunksize=5000):
             chunk.columns = chunk.columns.str.strip()
             chunk = chunk.replace(['Infinity', 'inf', 'NaN'], np.nan).fillna(0)

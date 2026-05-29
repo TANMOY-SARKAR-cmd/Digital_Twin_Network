@@ -395,8 +395,10 @@ def _ai_inference(
 # =============================================================================
 
 def _sanitise(payload: dict):
-    raw_features = np.array(payload["features"]).reshape(1, -1)
-    features     = np.nan_to_num(raw_features, nan=0.0, posinf=0.0, neginf=0.0)
+    feat_list = payload.get("features", [])
+    raw_features = np.array(feat_list).reshape(1, -1) if feat_list else np.zeros((1, 0))
+
+    features = np.nan_to_num(raw_features, nan=0.0, posinf=0.0, neginf=0.0)
     if features.shape != (1, 40):
         return {"error": "bad_payload", "expected_shape": 40}
     raw_vol      = float(payload.get("volume", 0))
