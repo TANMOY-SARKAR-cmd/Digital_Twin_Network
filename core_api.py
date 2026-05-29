@@ -17,17 +17,14 @@ Improvements over previous version
 12. KEPT  Broadcast throttle (every 5th packet)
 """
 
-import asyncio
 import json
-import math
 import numpy as np
 import torch
 import torch.nn as nn
 import joblib
 from collections import deque
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
-from typing import List, Dict, Any
+
 import logging
 import time
 from stable_baselines3 import PPO
@@ -243,8 +240,8 @@ def _ai_inference(
         reconstruction = observer(in_seq)              # (1, 10, 40)
         abs_err        = torch.abs(reconstruction - in_seq)
         mae            = abs_err.mean().item()
-        mse            = (abs_err ** 2).mean().item()
-        max_feat_err   = abs_err.max().item()
+
+
 
         # Error trend: how fast is error rising?
         err_buf.append(mae)
@@ -449,7 +446,7 @@ async def dashboard_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except (WebSocketDisconnect, json.JSONDecodeError):
         pass
-    except Exception as e:
+    except Exception:
         logging.error("Unexpected WS error", exc_info=True)
         connected_dashboards.discard(websocket)
 
@@ -464,7 +461,7 @@ async def live_topology_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except (WebSocketDisconnect, json.JSONDecodeError):
         pass
-    except Exception as e:
+    except Exception:
         logging.error("Unexpected WS error", exc_info=True)
         connected_topology_dashboards.discard(websocket)
 
@@ -494,7 +491,7 @@ async def network_endpoint(websocket: WebSocket):
             payload = json.loads(data)
             pkt_count += 1
 
-            global global_packets_received, packet_timestamps
+            global global_packets_received
             global_packets_received += 1
             packet_timestamps.append(time.time())
             sanitise_result = _sanitise(payload)
@@ -544,9 +541,9 @@ async def network_endpoint(websocket: WebSocket):
             for dash in list(connected_dashboards):
                 try:
                     await dash.send_json(broadcast_payload)
-                except (_TornadoWSClosed, WebSocketDisconnect, json.JSONDecodeError):
+                except (WebSocketDisconnect, json.JSONDecodeError):
                     pass
-                except Exception as e:
+                except Exception:
                     logging.error("Unexpected WS error", exc_info=True)
                     dead.add(dash)
             connected_dashboards.difference_update(dead)
@@ -554,9 +551,9 @@ async def network_endpoint(websocket: WebSocket):
             for dash in list(connected_topology_dashboards):
                 try:
                     await dash.send_json({"route": result["route"], "is_attack": result["is_attack"]})
-                except (_TornadoWSClosed, WebSocketDisconnect, json.JSONDecodeError):
+                except (WebSocketDisconnect, json.JSONDecodeError):
                     pass
-                except Exception as e:
+                except Exception:
                     logging.error("Unexpected WS error", exc_info=True)
                     dead_topo.add(dash)
             connected_topology_dashboards.difference_update(dead_topo)
@@ -632,7 +629,7 @@ async def compare_endpoint(websocket: WebSocket):
             lat_a        = float(payload.get("lat_a", 0.01))
             lat_b        = float(payload.get("lat_b", 0.05))
 
-            global global_packets_received, packet_timestamps
+            global global_packets_received
             global_packets_received += 1
             packet_timestamps.append(time.time())
             sanitise_result = _sanitise(payload)
