@@ -99,6 +99,8 @@ if st.session_state.ws_running:
         if item["type"] == "data":
             st.session_state.latest_data = item["payload"]
             st.session_state.render_id += 1
+            st.session_state.history_error.append(item["payload"]["error"])
+            st.session_state.history_route.append(item["payload"]["route"])
         elif item["type"] == "error":
             st.session_state.latest_data = {"error_msg": item["error_msg"]}
             st.session_state.ws_running = False
@@ -125,9 +127,7 @@ if st.session_state.ws_running:
         if st.session_state.render_id != st.session_state.last_render_id:
             st.session_state.last_render_id = st.session_state.render_id
 
-            # 1. Update History — deque handles maxlen trimming automatically
-            st.session_state.history_error.append(parsed["error"])
-            st.session_state.history_route.append(parsed["route"])
+            # 1. Update History — now handled in the queue loop above
 
             # 2. Status Alert
             if parsed["is_attack"]:

@@ -128,10 +128,38 @@ def _compute_metrics(prefix):
 # =============================================================================
 # ASYNC INJECTION LOOP  (runs in a background thread — does NOT block the UI)
 # =============================================================================
-async def run_comparison(df: pd.DataFrame, speed: int, stop_event: threading.Event):
+async def run_comparison(file_path: str, sample_size, speed: int, stop_event: threading.Event):
     uri   = "ws://localhost:8000/ws/compare"
     delay = 1.0 / speed
+
+    df_loaded = pd.read_csv(file_path)
+    df_loaded.columns = [c.strip() for c in df_loaded.columns]
+    df_loaded = df_loaded.replace(['Infinity', 'inf', 'NaN'], np.nan).fillna(0)
+
+    # Stratified sample — preserves attack/benign ratio
+    if sample_size != 'All':
+        label_col = 'Label' if 'Label' in df_loaded.columns else None
+        if label_col and df_loaded[label_col].nunique() > 1:
+            df_loaded = (
+                df_loaded
+                .groupby(label_col, group_keys=False)
+                .apply(lambda g: g.sample(
+                    min(len(g), max(1, int(sample_size * len(g) / len(df_loaded)))),
+                    random_state=42
+                ))
+                .sample(frac=1, random_state=42)
+                .reset_index(drop=True)
+            )
+        else:
+            df_loaded = df_loaded.sample(
+                min(sample_size, len(df_loaded)), random_state=42
+            ).reset_index(drop=True)
+
+    df = df_loaded
     total = len(df)
+
+    # Notify main thread of total packets
+    data_queue.put({"type": "metadata", "total_packets": total})
 
     suppress_finished = False
 
@@ -199,13 +227,13 @@ async def run_comparison(df: pd.DataFrame, speed: int, stop_event: threading.Eve
 
 # FIX: Injection runs in its own thread+event loop so Streamlit's UI thread
 # is never blocked — live charts, banners and metric cards update every rerun.
-def _start_background_thread(df: pd.DataFrame, speed: int):
+def _start_background_thread(file_path: str, sample_size, speed: int):
     stop_event = st.session_state.stop_event
 
     def _worker():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(run_comparison(df, speed, stop_event))
+        loop.run_until_complete(run_comparison(file_path, sample_size, speed, stop_event))
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
@@ -251,33 +279,13 @@ with st.sidebar:
         while not data_queue.empty():
             data_queue.get()
 
-        df_loaded = pd.read_csv(f"data/{selected}")
-        df_loaded.columns = [c.strip() for c in df_loaded.columns]
-        df_loaded = df_loaded.replace(['Infinity', 'inf', 'NaN'], np.nan).fillna(0)
+        file_path = f"data/{selected}"
 
-        # Stratified sample — preserves attack/benign ratio
-        if sample_size != 'All':
-            label_col = 'Label' if 'Label' in df_loaded.columns else None
-            if label_col and df_loaded[label_col].nunique() > 1:
-                df_loaded = (
-                    df_loaded
-                    .groupby(label_col, group_keys=False)
-                    .apply(lambda g: g.sample(
-                        min(len(g), max(1, int(sample_size * len(g) / len(df_loaded)))),
-                        random_state=42
-                    ))
-                    .sample(frac=1, random_state=42)
-                    .reset_index(drop=True)
-                )
-            else:
-                df_loaded = df_loaded.sample(
-                    min(sample_size, len(df_loaded)), random_state=42
-                ).reset_index(drop=True)
-            st.sidebar.caption(f"Sampled {len(df_loaded):,} rows from dataset.")
-        st.session_state.total_packets = len(df_loaded)
+        # We will receive total_packets asynchronously
+        st.session_state.total_packets = 0
 
         # FIX: launch in background thread; hand control back to Streamlit immediately
-        _start_background_thread(df_loaded, speed)
+        _start_background_thread(file_path, sample_size, speed)
         st.rerun()
 
     if stop_clicked:
@@ -682,6 +690,11 @@ while not data_queue.empty():
 
         st.session_state.packets_sent = i
         st.session_state.latest = result
+
+    elif item["type"] == "metadata":
+        st.session_state.total_packets = item["total_packets"]
+        if sample_size != 'All':
+            st.sidebar.caption(f"Sampled {item['total_packets']:,} rows from dataset.")
 
     elif item["type"] == "error":
         st.session_state.latest = {"_error": item["error"]}
