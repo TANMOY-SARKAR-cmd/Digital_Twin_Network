@@ -2,7 +2,6 @@ import asyncio
 import websockets
 import json
 import subprocess
-import time
 import requests
 import random
 from shared_config import FEATURES
@@ -43,8 +42,8 @@ async def test_api():
                 await ws_network.send(json.dumps(payload))
                 await ws_compare.send(json.dumps(payload))
 
-                res_net = await ws_network.recv()
-                res_comp = await ws_compare.recv()
+                res_net = await asyncio.wait_for(ws_network.recv(), timeout=5.0)
+                res_comp = await asyncio.wait_for(ws_compare.recv(), timeout=5.0)
 
                 # Check for errors in the responses if any
                 net_data = json.loads(res_net)
