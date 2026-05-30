@@ -5,13 +5,13 @@ Improvements over previous version
 ------------------------------------
 1. FIXED  Inference throttle was a no-op — heavy block now correctly gated
 2. FIXED  seq_buffer / vol_buffer used O(n) list.pop(0) → deque(maxlen=N)
-3. NEW    Observer uses MAE + MSE + max-feature-error + error trend (Δerror)
+3. NEW    Observer uses MAE + error trend
 4. NEW    Prophet computes forecast DEVIATION vs actual, not just raw output
 5. NEW    Analyst tracks cluster transitions — sudden shift = anomaly signal
 6. NEW    Unified attack_confidence score [0..1] combining all 4 AI signals
 7. NEW    Temporal consistency gate — sustained confidence > 0.5 required
 8. NEW    Adaptive baseline threshold — EMA of recent benign errors
-9. NEW    Richer RL state vector (10-dim instead of 6) for the PPO manager
+9. NEW    Richer RL state vector (6-dim)
 10. NEW   NormalRouter gains packet-RATE z-score for PortScan / sweep detection
 11. KEPT  Tornado WebSocketClosedError catch
 12. KEPT  Broadcast throttle (every 5th packet)
@@ -439,13 +439,15 @@ def get_health():
     }
 
 @app.websocket("/ws/dashboard")
-async def dashboard_endpoint(websocket: WebSocket):
+async def dashboard_endpoint(websocket: WebSocket, client_id: str = None):
     await websocket.accept()
     connected_dashboards.add(websocket)
     try:
         while True:
             await websocket.receive_text()
-    except (WebSocketDisconnect, json.JSONDecodeError):
+    except WebSocketDisconnect:
+        connected_dashboards.discard(websocket)
+    except json.JSONDecodeError:
         pass
     except Exception:
         logging.error("Unexpected WS error", exc_info=True)
@@ -454,13 +456,15 @@ async def dashboard_endpoint(websocket: WebSocket):
 
 
 @app.websocket("/ws/live_topology")
-async def live_topology_endpoint(websocket: WebSocket):
+async def live_topology_endpoint(websocket: WebSocket, client_id: str = None):
     await websocket.accept()
     connected_topology_dashboards.add(websocket)
     try:
         while True:
             await websocket.receive_text()
-    except (WebSocketDisconnect, json.JSONDecodeError):
+    except WebSocketDisconnect:
+        connected_topology_dashboards.discard(websocket)
+    except json.JSONDecodeError:
         pass
     except Exception:
         logging.error("Unexpected WS error", exc_info=True)
@@ -491,7 +495,6 @@ async def network_endpoint(websocket: WebSocket):
             data    = await websocket.receive_text()
             payload = json.loads(data)
             pkt_count += 1
-            sim_time = pkt_count * 0.01  # noqa: F841
 
             global global_packets_received
             global_packets_received += 1
@@ -550,7 +553,7 @@ async def network_endpoint(websocket: WebSocket):
                 try:
                     await dash.send_json(broadcast_payload)
                 except (WebSocketDisconnect, json.JSONDecodeError):
-                    pass
+                    dead.add(dash)
                 except Exception:
                     logging.error("Unexpected WS error", exc_info=True)
                     dead.add(dash)
@@ -560,7 +563,7 @@ async def network_endpoint(websocket: WebSocket):
                 try:
                     await dash.send_json({"route": result["route"], "is_attack": result["is_attack"]})
                 except (WebSocketDisconnect, json.JSONDecodeError):
-                    pass
+                    dead_topo.add(dash)
                 except Exception:
                     logging.error("Unexpected WS error", exc_info=True)
                     dead_topo.add(dash)
@@ -681,7 +684,7 @@ async def compare_endpoint(websocket: WebSocket):
             # already-closed socket → RuntimeError crashes the uvicorn worker.
             # Catching it here lets the session end silently instead.
             try:
-                payload = {
+                response = {
                     "packet_index": packet_index,
                     "ground_truth": ground_truth,
                     "ai": {
@@ -704,7 +707,7 @@ async def compare_endpoint(websocket: WebSocket):
                         "rate_zscore": normal_result["rate_zscore"]
                     }
                 }
-                await websocket.send_json(payload)
+                await websocket.send_json(response)
             except (RuntimeError, WebSocketDisconnect):
                 # Socket was closed (superseded by a newer session) — exit cleanly
                 break
