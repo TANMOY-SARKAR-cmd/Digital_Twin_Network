@@ -4,11 +4,14 @@
 apk update
 apk add openvswitch iproute2
 
-# Start ovsdb-server and ovs-vswitchd
-mkdir -p /run/openvswitch
-/usr/share/openvswitch/scripts/ovs-ctl start
-
-# Wait for ovs-vswitchd to be ready
+# Start ovsdb-server and ovs-vswitchd manually for Alpine
+mkdir -p /run/openvswitch /etc/openvswitch
+if [ ! -f /etc/openvswitch/conf.db ]; then
+    ovsdb-tool create /etc/openvswitch/conf.db /usr/share/openvswitch/vswitch.ovsschema
+fi
+ovsdb-server --remote=punix:/run/openvswitch/db.sock --pidfile --detach
+ovs-vsctl --no-wait init
+ovs-vswitchd --pidfile --detach
 sleep 2
 
 # Create OVS bridge br0

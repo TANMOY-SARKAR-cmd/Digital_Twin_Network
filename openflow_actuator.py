@@ -4,7 +4,14 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CONTAINER_NAME = "app-sdn_router-1"
+def get_container_name() -> str:
+    cmd = ["docker", "ps", "--format", "{{.Names}}", "--filter", "name=sdn_router"]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    names = res.stdout.strip().split("\n")
+    return names[0] if names and names[0] else "sdn_router"
+
+CONTAINER_NAME = get_container_name()
+
 
 
 def get_interface_port(if_name: str) -> str:
