@@ -80,7 +80,7 @@ def _count_rows(file_path):
 
 
 # --- 3. Simulation Engine ---
-async def start_injection(file_path, p_lat, b_lat, link_capacity, delay_per_packet, stop_event):
+async def start_injection(file_path, p_lat, b_lat, link_capacity, delay_per_packet, stop_event, sim_queue):
     uri = "ws://localhost:8000/ws/network"
 
 
@@ -105,7 +105,7 @@ async def start_injection(file_path, p_lat, b_lat, link_capacity, delay_per_pack
                 chunk.columns = [c.strip() for c in chunk.columns]
                 for row_idx in range(len(chunk)):
                     if stop_event.is_set():
-                        st.session_state.sim_queue.put({"type": "warning", "text": "🛑 Simulation manually terminated."})
+                        sim_queue.put({"type": "warning", "text": "🛑 Simulation manually terminated."})
                         return
 
                     row = chunk.iloc[row_idx]
@@ -141,7 +141,7 @@ async def start_injection(file_path, p_lat, b_lat, link_capacity, delay_per_pack
                         hrs, rem = divmod(int(rem_seconds), 3600)
                         mins, secs = divmod(rem, 60)
 
-                        st.session_state.sim_queue.put({
+                        sim_queue.put({
                             "type": "update",
                             "progress": min(prog, 1.0),
                             "text": f"Injecting: {i}/{total} | Type: {label}",
@@ -149,17 +149,17 @@ async def start_injection(file_path, p_lat, b_lat, link_capacity, delay_per_pack
                         })
 
                     await asyncio.sleep(delay_per_packet)
-            st.session_state.sim_queue.put({"type": "completed"})
+            sim_queue.put({"type": "completed"})
 
     except Exception as e:
-        st.session_state.sim_queue.put({"type": "error", "text": f"Core API connection failed: {e}"})
+        sim_queue.put({"type": "error", "text": f"Core API connection failed: {e}"})
 
 
-def run_injection_thread(file_path, p_lat, b_lat, link_capacity, delay_per_packet, stop_event):
+def run_injection_thread(file_path, p_lat, b_lat, link_capacity, delay_per_packet, stop_event, sim_queue):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(
-        start_injection(file_path, p_lat, b_lat, link_capacity, delay_per_packet, stop_event)
+        start_injection(file_path, p_lat, b_lat, link_capacity, delay_per_packet, stop_event, sim_queue)
     )
 
 # Controls
@@ -186,7 +186,8 @@ if c1.button("▶️ Start Simulation", type="primary", use_container_width=True
                 parse_latency(backup_lat),
                 capacity,
                 delay_per_packet,
-                st.session_state.architect_stop_event
+                st.session_state.architect_stop_event,
+                st.session_state.sim_queue
             ),
             daemon=True
         )

@@ -129,7 +129,7 @@ def _compute_metrics(prefix):
 # =============================================================================
 # ASYNC INJECTION LOOP  (runs in a background thread — does NOT block the UI)
 # =============================================================================
-async def run_comparison(file_path: str, sample_size, speed: int, stop_event: threading.Event):
+async def run_comparison(file_path: str, sample_size, speed: int, stop_event: threading.Event, data_queue: queue.Queue):
     uri   = "ws://localhost:8000/ws/compare"
     delay = 1.0 / speed
 
@@ -160,7 +160,7 @@ async def run_comparison(file_path: str, sample_size, speed: int, stop_event: th
     total = len(df)
 
     # Notify main thread of total packets
-    st.session_state.data_queue.put({"type": "metadata", "total_packets": total})
+    data_queue.put({"type": "metadata", "total_packets": total})
 
     suppress_finished = False
 
@@ -194,7 +194,7 @@ async def run_comparison(file_path: str, sample_size, speed: int, stop_event: th
                 gt = result["ground_truth"]
 
                 if not stop_event.is_set():
-                    st.session_state.data_queue.put({
+                    data_queue.put({
                         "type": "data",
                         "packet_idx": i + 1,
                         "result": {"ai": ai, "normal": nm, "ground_truth": gt}
@@ -217,26 +217,25 @@ async def run_comparison(file_path: str, sample_size, speed: int, stop_event: th
             suppress_finished = True  # clean supersession — discard silently
         else:
             if not stop_event.is_set():
-                st.session_state.data_queue.put({"type": "error", "error": str(e)})
+                data_queue.put({"type": "error", "error": str(e)})
     except Exception as e:
         if not stop_event.is_set():
-            st.session_state.data_queue.put({"type": "error", "error": str(e)})
+            data_queue.put({"type": "error", "error": str(e)})
     finally:
         if not suppress_finished and not stop_event.is_set():
-            st.session_state.data_queue.put({"type": "finished"})
+            data_queue.put({"type": "finished"})
 
 
 # FIX: Injection runs in its own thread+event loop so Streamlit's UI thread
 # is never blocked — live charts, banners and metric cards update every rerun.
 def _start_background_thread(file_path: str, sample_size, speed: int):
-    stop_event = st.session_state.stop_event
 
-    def _worker():
+    def _worker(stop_event, data_queue):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(run_comparison(file_path, sample_size, speed, stop_event))
+        loop.run_until_complete(run_comparison(file_path, sample_size, speed, stop_event, data_queue))
 
-    t = threading.Thread(target=_worker, daemon=True)
+    t = threading.Thread(target=_worker, args=(st.session_state.stop_event, st.session_state.data_queue), daemon=True)
     t.start()
 
 
