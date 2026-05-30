@@ -25,7 +25,7 @@ async def test_api():
         await asyncio.sleep(0.5)
     else:
         proc.terminate()
-        proc.wait()
+        proc.wait()  # Ensure the process releases the port before failing
         pytest.fail("API failed to start")
 
     try:
@@ -57,7 +57,7 @@ async def test_api():
                 if "error" in comp_data:
                     pytest.fail(f"Error in compare response: {comp_data['error']}")
 
-                print(f"Packet {i+1} processed successfully")
+                print(f"Packet {i + 1} processed successfully")
         print("Test passed 100%")
         return True
     finally:
