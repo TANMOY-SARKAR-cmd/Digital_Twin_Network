@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import threading
 import time
 from collections import deque  # FIX: O(1) append/pop vs O(n) list.pop(0)
-from streamlit.runtime.scriptrunner import add_script_run_ctx
+import queue
 
 # --- Page Configuration ---
 st.set_page_config(layout="wide", page_title="AI Digital Twin")
@@ -27,28 +27,34 @@ if 'render_id' not in st.session_state:
     st.session_state.render_id = 0
 if 'last_render_id' not in st.session_state:
     st.session_state.last_render_id = -1
-
+if 'dashboard_stop_event' not in st.session_state:
+    st.session_state.dashboard_stop_event = threading.Event()
+if 'dashboard_queue' not in st.session_state:
+    st.session_state.dashboard_queue = queue.Queue()
 
 # --- Background Worker ---
-async def fetch_telemetry():
-    """Listens to the WebSocket and updates session_state in the background."""
+async def fetch_telemetry(stop_event, telemetry_queue):
+    """Listens to the WebSocket and sends updates to a thread-safe queue."""
     uri = "ws://localhost:8000/ws/dashboard"
     try:
         async with websockets.connect(uri) as websocket:
-            while st.session_state.ws_running:
+            while not stop_event.is_set():
                 data = await websocket.recv()
-                st.session_state.latest_data = json.loads(data)
-                # Increment so the main thread knows there is genuinely new data
-                st.session_state.render_id += 1
+                if not stop_event.is_set():
+                    telemetry_queue.put({"type": "data", "payload": json.loads(data)})
     except Exception as e:
-        st.session_state.latest_data = {"error_msg": str(e)}
+        if not stop_event.is_set():
+            telemetry_queue.put({"type": "error", "error_msg": str(e)})
+    finally:
+        if not stop_event.is_set():
+            telemetry_queue.put({"type": "finished"})
 
 
-def start_background_loop():
+def start_background_loop(stop_event, telemetry_queue):
     """Sets up a new event loop for the background thread."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(fetch_telemetry())
+    loop.run_until_complete(fetch_telemetry(stop_event, telemetry_queue))
 
 
 # --- UI Layout ---
@@ -68,19 +74,38 @@ button_container = st.empty()
 
 if not st.session_state.ws_running:
     if button_container.button("🟢 Connect to Digital Twin"):
+        st.session_state.dashboard_stop_event = threading.Event()
         st.session_state.ws_running = True
-        thread = threading.Thread(target=start_background_loop, daemon=True)
-        add_script_run_ctx(thread)
+        while not st.session_state.dashboard_queue.empty():
+            st.session_state.dashboard_queue.get()
+        thread = threading.Thread(
+            target=start_background_loop,
+            args=(st.session_state.dashboard_stop_event, st.session_state.dashboard_queue),
+            daemon=True
+        )
         thread.start()
         st.rerun()
 else:
     if button_container.button("🛑 Stop Monitoring"):
+        st.session_state.dashboard_stop_event.set()
         st.session_state.ws_running = False
         st.session_state.latest_data = None
         st.rerun()
 
 # --- Main Render Loop ---
 if st.session_state.ws_running:
+    while not st.session_state.dashboard_queue.empty():
+        item = st.session_state.dashboard_queue.get()
+        if item["type"] == "data":
+            st.session_state.latest_data = item["payload"]
+            st.session_state.render_id += 1
+        elif item["type"] == "error":
+            st.session_state.latest_data = {"error_msg": item["error_msg"]}
+            st.session_state.ws_running = False
+            st.session_state.dashboard_stop_event.set()
+        elif item["type"] == "finished":
+            st.session_state.ws_running = False
+
     if st.session_state.latest_data is None:
         graph_container.info("📡 WebSocket Connected. Listening for first telemetry packet...")
         chart_container.warning("Awaiting data stream from backend API...")

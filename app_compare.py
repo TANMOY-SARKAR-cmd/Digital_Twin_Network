@@ -26,7 +26,6 @@ import queue
 
 data_queue = queue.Queue()
 
-from streamlit.runtime.scriptrunner import add_script_run_ctx
 import nest_asyncio
 nest_asyncio.apply()
 
@@ -75,6 +74,7 @@ def _init_state():
         "nm_last_route": 0,
         # Latest raw result
         "latest": None,
+        "stop_event": threading.Event(),
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -128,17 +128,17 @@ def _compute_metrics(prefix):
 # =============================================================================
 # ASYNC INJECTION LOOP  (runs in a background thread — does NOT block the UI)
 # =============================================================================
-async def run_comparison(df: pd.DataFrame, speed: int):
+async def run_comparison(df: pd.DataFrame, speed: int, stop_event: threading.Event):
     uri   = "ws://localhost:8000/ws/compare"
     delay = 1.0 / speed
     total = len(df)
 
-    st.session_state.total_packets = total
+    suppress_finished = False
 
     try:
         async with websockets.connect(uri, ping_interval=None) as ws:
             for i in range(total):
-                if not st.session_state.running:
+                if stop_event.is_set():
                     break
 
                 row      = df.iloc[i]
@@ -164,33 +164,11 @@ async def run_comparison(df: pd.DataFrame, speed: int):
                 nm = result["normal"]
                 gt = result["ground_truth"]
 
-                _update_confusion("ai", ai["is_attack"], gt)
-                _update_confusion("nm", nm["is_attack"], gt)
-
-                if ai["route"] != st.session_state.ai_last_route:
-                    st.session_state.ai_switches += 1
-                    st.session_state.ai_last_route = ai["route"]
-
-                if nm["route"] != st.session_state.nm_last_route:
-                    st.session_state.nm_switches += 1
-                    st.session_state.nm_last_route = nm["route"]
-
-                # Core deques — keep in sync
-                st.session_state.ai_errors.append(ai["error"])
-                st.session_state.ai_routes.append(ai["route"])
-                st.session_state.norm_latscores.append(nm["lat_score"])
-                st.session_state.norm_routes.append(nm["route"])
-                st.session_state.gt_history.append(1 if gt else 0)
-                # New signal deques
-                st.session_state.ai_confidence.append(ai.get("attack_confidence", 0.0))
-                st.session_state.ai_error_deltas.append(ai.get("error_delta", 0.0))
-                st.session_state.nm_rate_zscores.append(nm.get("rate_zscore", 0.0))
-                # Cluster transition counter
-                if ai.get("cluster_transition", False):
-                    st.session_state.ai_cluster_transitions += 1
-
-                st.session_state.packets_sent = i + 1
-                st.session_state.latest = result
+                data_queue.put({
+                    "type": "data",
+                    "packet_idx": i + 1,
+                    "result": {"ai": ai, "normal": nm, "ground_truth": gt}
+                })
 
                 # At high speed skip the sleep entirely;
                 # yield control briefly so the event loop stays alive
@@ -206,26 +184,27 @@ async def run_comparison(df: pd.DataFrame, speed: int):
         # launched, so this is a clean exit. Do NOT store it as an error or the
         # UI will show "Connection error" and "Simulation complete!" prematurely.
         if e.rcvd is not None and e.rcvd.code == 1001:
-            pass  # clean supersession — discard silently
+            suppress_finished = True  # clean supersession — discard silently
         else:
-            st.session_state.latest = {"_error": str(e)}
+            data_queue.put({"type": "error", "error": str(e)})
     except Exception as e:
-        st.session_state.latest = {"_error": str(e)}
-
-    st.session_state.running  = False
-    st.session_state.finished = True
+        data_queue.put({"type": "error", "error": str(e)})
+    finally:
+        if not suppress_finished:
+            data_queue.put({"type": "finished"})
 
 
 # FIX: Injection runs in its own thread+event loop so Streamlit's UI thread
 # is never blocked — live charts, banners and metric cards update every rerun.
 def _start_background_thread(df: pd.DataFrame, speed: int):
+    stop_event = st.session_state.stop_event
+
     def _worker():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(run_comparison(df, speed))
+        loop.run_until_complete(run_comparison(df, speed, stop_event))
 
     t = threading.Thread(target=_worker, daemon=True)
-    add_script_run_ctx(t)
     t.start()
 
 
@@ -265,6 +244,9 @@ with st.sidebar:
         _init_state()
         st.session_state.running  = True
         st.session_state.finished = False
+        st.session_state.stop_event = threading.Event()
+        while not data_queue.empty():
+            data_queue.get()
 
         df_loaded = pd.read_csv(f"data/{selected}")
         df_loaded.columns = [c.strip() for c in df_loaded.columns]
@@ -289,6 +271,7 @@ with st.sidebar:
                     min(sample_size, len(df_loaded)), random_state=42
                 ).reset_index(drop=True)
             st.sidebar.caption(f"Sampled {len(df_loaded):,} rows from dataset.")
+        st.session_state.total_packets = len(df_loaded)
 
         # FIX: launch in background thread; hand control back to Streamlit immediately
         _start_background_thread(df_loaded, speed)
@@ -296,10 +279,14 @@ with st.sidebar:
 
     if stop_clicked:
         st.session_state.running = False
+        st.session_state.stop_event.set()
         # FIX: rerun so the UI reflects the stopped state immediately
         st.rerun()
 
     if reset_clicked:
+        stop_event = st.session_state.get("stop_event")
+        if stop_event is not None:
+            stop_event.set()
         for k in list(st.session_state.keys()):
             del st.session_state[k]
         _init_state()
