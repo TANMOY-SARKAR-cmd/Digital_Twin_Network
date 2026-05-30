@@ -342,20 +342,24 @@ async def listen_brains(client_id: str, stop_event: threading.Event):
                 raw  = await ws.recv()
                 data = json.loads(raw)
 
+                if stop_event.is_set():
+                    continue
                 data_queue.put({
                     "type": "data",
                     "data": data
                 })
 
     except Exception as e:
-        data_queue.put({
-            "type": "error",
-            "error": str(e)
-        })
+        if not stop_event.is_set():
+            data_queue.put({
+                "type": "error",
+                "error": str(e)
+            })
     finally:
-        data_queue.put({
-            "type": "finished"
-        })
+        if not stop_event.is_set():
+            data_queue.put({
+                "type": "finished"
+            })
 
 def _start_brains_thread():
     stop_event = threading.Event()
