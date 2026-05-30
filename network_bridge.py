@@ -25,7 +25,10 @@ selected_dataset = os.getenv("SELECTED_DATASET", "")
 # FIX: Respect the injection-speed slider set in the Architect UI.
 # The Architect writes SIM_SPEED (packets/sec) to the environment before
 # launching this bridge. Default = 2 pkt/s (matches old hard-coded 0.5 s).
-_sim_speed   = max(1, int(float(os.getenv("SIM_SPEED", "2"))))
+try:
+    _sim_speed = max(0.1, float(os.getenv("SIM_SPEED", "2")))
+except ValueError:
+    _sim_speed = 2.0
 _delay_per_packet = 1.0 / _sim_speed
 
 

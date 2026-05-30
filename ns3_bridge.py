@@ -14,8 +14,6 @@ def _is_lfs_pointer(file_path):
     return "version https://git-lfs.github.com/spec/v1" in first_line
 
 
-
-
 async def simulate_network():
     # FIX: Corrected endpoint from /ws/ns3 (which doesn't exist in core_api.py)
     # to /ws/network — the only packet-ingestion endpoint the API exposes.
