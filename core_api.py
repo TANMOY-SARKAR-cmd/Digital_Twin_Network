@@ -255,15 +255,8 @@ def _ai_inference(
         forecast_raw = prophet(v_seq).item()         # raw scaled volume
         # inverse-transform to get actual volume units
         forecast_valid = True
-        try:
-            actual_vol_scaled = prophet_scaler.transform(
-                [[np.nan_to_num(np.log1p(raw_vol), nan=0.0)]])[0][0]
-            forecast_deviation = abs(forecast_raw - actual_vol_scaled)
-        except (ValueError, TypeError) as e:
-            logging.error(f'Prophet scaler error: {e}')
-            forecast_valid = False
-
-            forecast_deviation = 0.0
+        actual_vol_scaled = vol_buf[-1]
+        forecast_deviation = abs(forecast_raw - actual_vol_scaled)
 
         # ── Analyst: cluster ID + transition detection ───────────────────────
         an_in      = analyst_scaler.transform(features)
@@ -490,6 +483,7 @@ async def network_endpoint(websocket: WebSocket):
             data    = await websocket.receive_text()
             payload = json.loads(data)
             pkt_count += 1
+            sim_time = pkt_count * 0.01  # noqa: F841
 
             global global_packets_received
             global_packets_received += 1
@@ -644,8 +638,9 @@ async def compare_endpoint(websocket: WebSocket):
             vol_buf.append(vol_scaled)
 
             # Normal Router — runs every packet (it's lightweight)
+            sim_time = packet_index * 0.01
             normal_result = normal_router.decide(lat_a=lat_a, lat_b=lat_b,
-                                                  volume=raw_vol)
+                                                  volume=raw_vol, timestamp=sim_time)
 
             # AI Router — full inference only every INFER_EVERY packets
             run_inference = (packet_index % INFER_EVERY == 0)
