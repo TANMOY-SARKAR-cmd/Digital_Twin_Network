@@ -1,3 +1,4 @@
+import pytest
 import asyncio
 import websockets
 import json
@@ -7,6 +8,7 @@ import random
 from shared_config import FEATURES
 
 
+@pytest.mark.asyncio
 async def test_api():
     proc = subprocess.Popen(["uvicorn", "core_api:app", "--port", "8000"])
 
