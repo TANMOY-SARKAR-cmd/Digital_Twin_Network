@@ -99,8 +99,10 @@ async def simulate_network():
                         await asyncio.sleep(0.1)
                         i += 1
             break  # Exit if successfully finished the whole dataset
-        except Exception as e:
-            print(f"Connection error: {e}. Retrying in 5s...")
+        except asyncio.CancelledError:
+            raise
+        except (asyncio.TimeoutError, OSError, websockets.exceptions.WebSocketException) as e:
+            print(f"WebSocket error: {e}. Retrying in 5s...")
             await asyncio.sleep(5)
 
 
