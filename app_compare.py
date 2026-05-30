@@ -128,11 +128,7 @@ def _compute_metrics(prefix):
 # =============================================================================
 # ASYNC INJECTION LOOP  (runs in a background thread — does NOT block the UI)
 # =============================================================================
-async def run_comparison(df: pd.DataFrame, speed: int):
-    await run_comparison_with_stop(df, speed, threading.Event())
-
-
-async def run_comparison_with_stop(df: pd.DataFrame, speed: int, stop_event: threading.Event):
+async def run_comparison(df: pd.DataFrame, speed: int, stop_event: threading.Event):
     uri   = "ws://localhost:8000/ws/compare"
     delay = 1.0 / speed
     total = len(df)
@@ -203,7 +199,7 @@ def _start_background_thread(df: pd.DataFrame, speed: int):
     def _worker():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(run_comparison_with_stop(df, speed, stop_event))
+        loop.run_until_complete(run_comparison(df, speed, stop_event))
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()

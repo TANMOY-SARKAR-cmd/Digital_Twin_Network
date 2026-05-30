@@ -11,7 +11,6 @@ import threading
 import queue
 
 sim_queue = queue.Queue()
-from streamlit.runtime.scriptrunner import add_script_run_ctx
 
 # FIX: nest_asyncio allows asyncio.run() to work inside Streamlit's already-running
 # event loop. Without this, clicking Start Simulation raises:
@@ -187,7 +186,6 @@ if c1.button("▶️ Start Simulation", type="primary", use_container_width=True
             ),
             daemon=True
         )
-        add_script_run_ctx(t)
         t.start()
     else:
         st.warning("Please select a dataset first.")

@@ -100,7 +100,7 @@ if st.session_state.ws_running:
             st.session_state.latest_data = {"error_msg": item["error_msg"]}
             st.session_state.ws_running = False
             st.session_state.dashboard_stop_event.set()
-        elif item["type"] == "finished" and st.session_state.dashboard_stop_event.is_set():
+        elif item["type"] == "finished":
             st.session_state.ws_running = False
 
     if st.session_state.latest_data is None:
