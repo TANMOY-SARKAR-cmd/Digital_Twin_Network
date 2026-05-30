@@ -517,7 +517,7 @@ async def network_endpoint(websocket: WebSocket):
                 adaptive_baseline = adaptive,
             )
 
-            # Only actuate if the route actually changed and actuation is enabled
+            # Actuate the physical Docker switch if enabled
             if result["route"] != last_action and ACTUATOR_AVAILABLE and os.getenv("ENABLE_ACTUATION") == "true":
                 asyncio.create_task(asyncio.to_thread(switch_route, result["route"]))
 
