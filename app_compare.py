@@ -133,6 +133,8 @@ async def run_comparison(df: pd.DataFrame, speed: int, stop_event: threading.Eve
     delay = 1.0 / speed
     total = len(df)
 
+    suppress_finished = False
+
     try:
         async with websockets.connect(uri, ping_interval=None) as ws:
             for i in range(total):
@@ -182,13 +184,14 @@ async def run_comparison(df: pd.DataFrame, speed: int, stop_event: threading.Eve
         # launched, so this is a clean exit. Do NOT store it as an error or the
         # UI will show "Connection error" and "Simulation complete!" prematurely.
         if e.rcvd is not None and e.rcvd.code == 1001:
-            pass  # clean supersession — discard silently
+            suppress_finished = True  # clean supersession — discard silently
         else:
             data_queue.put({"type": "error", "error": str(e)})
     except Exception as e:
         data_queue.put({"type": "error", "error": str(e)})
     finally:
-        data_queue.put({"type": "finished"})
+        if not suppress_finished:
+            data_queue.put({"type": "finished"})
 
 
 # FIX: Injection runs in its own thread+event loop so Streamlit's UI thread
