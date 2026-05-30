@@ -164,11 +164,12 @@ async def run_comparison(df: pd.DataFrame, speed: int, stop_event: threading.Eve
                 nm = result["normal"]
                 gt = result["ground_truth"]
 
-                data_queue.put({
-                    "type": "data",
-                    "packet_idx": i + 1,
-                    "result": {"ai": ai, "normal": nm, "ground_truth": gt}
-                })
+                if not stop_event.is_set():
+                    data_queue.put({
+                        "type": "data",
+                        "packet_idx": i + 1,
+                        "result": {"ai": ai, "normal": nm, "ground_truth": gt}
+                    })
 
                 # At high speed skip the sleep entirely;
                 # yield control briefly so the event loop stays alive
@@ -186,11 +187,13 @@ async def run_comparison(df: pd.DataFrame, speed: int, stop_event: threading.Eve
         if e.rcvd is not None and e.rcvd.code == 1001:
             suppress_finished = True  # clean supersession — discard silently
         else:
-            data_queue.put({"type": "error", "error": str(e)})
+            if not stop_event.is_set():
+                data_queue.put({"type": "error", "error": str(e)})
     except Exception as e:
-        data_queue.put({"type": "error", "error": str(e)})
+        if not stop_event.is_set():
+            data_queue.put({"type": "error", "error": str(e)})
     finally:
-        if not suppress_finished:
+        if not suppress_finished and not stop_event.is_set():
             data_queue.put({"type": "finished"})
 
 

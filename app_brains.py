@@ -344,10 +344,11 @@ async def listen_brains(client_id: str, stop_event: threading.Event):
 
                 if stop_event.is_set():
                     continue
-                data_queue.put({
-                    "type": "data",
-                    "data": data
-                })
+                if not stop_event.is_set():
+                    data_queue.put({
+                        "type": "data",
+                        "data": data
+                    })
 
     except Exception as e:
         if not stop_event.is_set():
