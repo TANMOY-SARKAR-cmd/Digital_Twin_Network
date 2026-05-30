@@ -24,7 +24,6 @@ import time
 from collections import deque
 import queue
 
-data_queue = queue.Queue()
 
 import nest_asyncio
 nest_asyncio.apply()
@@ -47,6 +46,8 @@ HISTORY_LEN       = 80
 # SESSION STATE
 # =============================================================================
 def _init_state():
+    if "data_queue" not in st.session_state:
+        st.session_state.data_queue = queue.Queue()
     defaults = {
         "running":        False,
         "finished":       False,
@@ -159,7 +160,7 @@ async def run_comparison(file_path: str, sample_size, speed: int, stop_event: th
     total = len(df)
 
     # Notify main thread of total packets
-    data_queue.put({"type": "metadata", "total_packets": total})
+    st.session_state.data_queue.put({"type": "metadata", "total_packets": total})
 
     suppress_finished = False
 
@@ -193,7 +194,7 @@ async def run_comparison(file_path: str, sample_size, speed: int, stop_event: th
                 gt = result["ground_truth"]
 
                 if not stop_event.is_set():
-                    data_queue.put({
+                    st.session_state.data_queue.put({
                         "type": "data",
                         "packet_idx": i + 1,
                         "result": {"ai": ai, "normal": nm, "ground_truth": gt}
@@ -216,13 +217,13 @@ async def run_comparison(file_path: str, sample_size, speed: int, stop_event: th
             suppress_finished = True  # clean supersession — discard silently
         else:
             if not stop_event.is_set():
-                data_queue.put({"type": "error", "error": str(e)})
+                st.session_state.data_queue.put({"type": "error", "error": str(e)})
     except Exception as e:
         if not stop_event.is_set():
-            data_queue.put({"type": "error", "error": str(e)})
+            st.session_state.data_queue.put({"type": "error", "error": str(e)})
     finally:
         if not suppress_finished and not stop_event.is_set():
-            data_queue.put({"type": "finished"})
+            st.session_state.data_queue.put({"type": "finished"})
 
 
 # FIX: Injection runs in its own thread+event loop so Streamlit's UI thread
@@ -276,8 +277,8 @@ with st.sidebar:
         st.session_state.running  = True
         st.session_state.finished = False
         st.session_state.stop_event = threading.Event()
-        while not data_queue.empty():
-            data_queue.get()
+        while not st.session_state.data_queue.empty():
+            st.session_state.data_queue.get()
 
         file_path = f"data/{selected}"
 
@@ -354,7 +355,7 @@ with router_right:
     ai_m = _compute_metrics("ai")
 
     # Calculate new metrics for AI
-    latest_conf  = list(st.session_state.ai_confidence)[-1]  if st.session_state.ai_confidence  else 0.0
+    latest_conf  = st.session_state.ai_confidence[-1]  if st.session_state.ai_confidence  else 0.0
     latest_delta = list(st.session_state.ai_error_deltas)[-1] if st.session_state.ai_error_deltas else 0.0
     latest_fcst  = st.session_state.latest["ai"].get("forecast_deviation", 0.0) if st.session_state.latest and "_error" not in st.session_state.latest else 0.0
 
@@ -653,9 +654,9 @@ with cm_right:
 
 # ── Auto-rerun while simulation is live ──────────────────────────────────────
 processed_queue = False
-while not data_queue.empty():
+while not st.session_state.data_queue.empty():
     processed_queue = True
-    item = data_queue.get()
+    item = st.session_state.data_queue.get()
 
     if item["type"] == "data":
         result = item["result"]

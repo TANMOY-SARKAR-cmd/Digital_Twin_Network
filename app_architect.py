@@ -10,7 +10,6 @@ import time
 import threading
 import queue
 
-sim_queue = queue.Queue()
 
 # FIX: nest_asyncio allows asyncio.run() to work inside Streamlit's already-running
 # event loop. Without this, clicking Start Simulation raises:
@@ -23,10 +22,15 @@ st.set_page_config(page_title="Network Architect", layout="wide")
 st.title("🛠️ SDN Network Architect")
 
 # Initialize session state for simulation control
-if 'stop_simulation' not in st.session_state:
-    st.session_state.stop_simulation = False
-if 'architect_stop_event' not in st.session_state:
-    st.session_state.architect_stop_event = threading.Event()
+def _init_state():
+    if 'stop_simulation' not in st.session_state:
+        st.session_state.stop_simulation = False
+    if 'architect_stop_event' not in st.session_state:
+        st.session_state.architect_stop_event = threading.Event()
+    if 'sim_queue' not in st.session_state:
+        st.session_state.sim_queue = queue.Queue()
+
+_init_state()
 
 # --- 1. Router Configuration ---
 st.header("1. Router Configuration")
@@ -101,7 +105,7 @@ async def start_injection(file_path, p_lat, b_lat, link_capacity, delay_per_pack
                 chunk.columns = [c.strip() for c in chunk.columns]
                 for row_idx in range(len(chunk)):
                     if stop_event.is_set():
-                        sim_queue.put({"type": "warning", "text": "🛑 Simulation manually terminated."})
+                        st.session_state.sim_queue.put({"type": "warning", "text": "🛑 Simulation manually terminated."})
                         return
 
                     row = chunk.iloc[row_idx]
@@ -137,7 +141,7 @@ async def start_injection(file_path, p_lat, b_lat, link_capacity, delay_per_pack
                         hrs, rem = divmod(int(rem_seconds), 3600)
                         mins, secs = divmod(rem, 60)
 
-                        sim_queue.put({
+                        st.session_state.sim_queue.put({
                             "type": "update",
                             "progress": min(prog, 1.0),
                             "text": f"Injecting: {i}/{total} | Type: {label}",
@@ -145,10 +149,10 @@ async def start_injection(file_path, p_lat, b_lat, link_capacity, delay_per_pack
                         })
 
                     await asyncio.sleep(delay_per_packet)
-            sim_queue.put({"type": "completed"})
+            st.session_state.sim_queue.put({"type": "completed"})
 
     except Exception as e:
-        sim_queue.put({"type": "error", "text": f"Core API connection failed: {e}"})
+        st.session_state.sim_queue.put({"type": "error", "text": f"Core API connection failed: {e}"})
 
 
 def run_injection_thread(file_path, p_lat, b_lat, link_capacity, delay_per_packet, stop_event):
@@ -164,8 +168,8 @@ if c1.button("▶️ Start Simulation", type="primary", use_container_width=True
     st.session_state.stop_simulation = False
     st.session_state.sim_active = True
     st.session_state.architect_stop_event = threading.Event()
-    while not sim_queue.empty():
-        sim_queue.get()
+    while not st.session_state.sim_queue.empty():
+        st.session_state.sim_queue.get()
     if selected_dataset:
         file_path = f"data/{selected_dataset}"
 
@@ -186,6 +190,7 @@ if c1.button("▶️ Start Simulation", type="primary", use_container_width=True
             ),
             daemon=True
         )
+        st.session_state.sim_thread = t
         t.start()
     else:
         st.warning("Please select a dataset first.")
@@ -204,8 +209,8 @@ if st.session_state.get('sim_active', False):
         st.session_state.sim_time = ""
 
     # Process all queued updates
-    while not sim_queue.empty():
-        update = sim_queue.get()
+    while not st.session_state.sim_queue.empty():
+        update = st.session_state.sim_queue.get()
         if update.get("type") == "update":
             st.session_state.sim_progress = update["progress"]
             st.session_state.sim_text = update["text"]

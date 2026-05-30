@@ -22,7 +22,6 @@ import urllib.request
 import uuid
 import queue
 
-data_queue = queue.Queue()
 
 st.set_page_config(layout="wide", page_title="AI Brains Inspector")
 
@@ -34,20 +33,26 @@ MAX_HISTORY   = 60
 DEFAULT_THRESHOLD = 0.05
 
 # ── Session state init ─────────────────────────────────────────────────
-_defaults = {
-    "obs_h":       [],   # [{score, is_attack, threshold}]
-    "proph_h":     [],   # [{forecast}]
-    "analyst_h":   [],   # [{traffic_type, cluster_id}]
-    "manager_h":   [],   # [{route, lat_a, lat_b}]
-    "brains_conn": False,
-    "brains_stop": False,
-    "brains_auto": False,
-    "brains_frame": 0,
-    "brains_cid":  uuid.uuid4().hex,
-}
-for k, v in _defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+def _init_state():
+    _defaults = {
+        "obs_h":       [],   # [{score, is_attack, threshold}]
+        "proph_h":     [],   # [{forecast}]
+        "analyst_h":   [],   # [{traffic_type, cluster_id}]
+        "manager_h":   [],   # [{route, lat_a, lat_b}]
+        "brains_conn": False,
+        "brains_stop": False,
+        "brains_auto": False,
+        "brains_frame": 0,
+        "brains_cid":  uuid.uuid4().hex,
+    }
+    for k, v in _defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+    if "data_queue" not in st.session_state:
+        st.session_state.data_queue = queue.Queue()
+
+_init_state()
 
 
 # ── Core API health banner ─────────────────────────────────────────────
@@ -343,20 +348,20 @@ async def listen_brains(client_id: str, stop_event: threading.Event):
                 data = json.loads(raw)
 
                 if not stop_event.is_set():
-                    data_queue.put({
+                    st.session_state.data_queue.put({
                         "type": "data",
                         "data": data
                     })
 
     except Exception as e:
         if not stop_event.is_set():
-            data_queue.put({
+            st.session_state.data_queue.put({
                 "type": "error",
                 "error": str(e)
             })
     finally:
         if not stop_event.is_set():
-            data_queue.put({
+            st.session_state.data_queue.put({
                 "type": "finished"
             })
 
@@ -379,6 +384,8 @@ bc, bd = st.columns(2)
 with bc:
     if st.button("🔌 Connect Brains", disabled=st.session_state.brains_conn):
         st.session_state.brains_conn = True
+        for key in ["obs_h", "proph_h", "analyst_h", "manager_h"]:
+            st.session_state[key].clear()
         _start_brains_thread()
 with bd:
     if st.button("⏏️ Disconnect", disabled=not st.session_state.brains_conn):
@@ -395,9 +402,9 @@ elif not status:
     render_all(st.session_state.brains_frame)
 
 processed_queue = False
-while not data_queue.empty():
+while not st.session_state.data_queue.empty():
     processed_queue = True
-    item = data_queue.get()
+    item = st.session_state.data_queue.get()
 
     if item["type"] == "data":
         data = item["data"]
