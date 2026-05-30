@@ -87,8 +87,10 @@ async def inject_traffic():
                         await asyncio.sleep(_delay_per_packet)
                         i += 1
             break  # Exit if successfully finished the whole dataset
-        except Exception as e:
-            print(f"Connection error: {e}. Retrying in 5s...")
+        except asyncio.CancelledError:
+            raise
+        except (asyncio.TimeoutError, OSError, websockets.exceptions.WebSocketException) as e:
+            print(f"WebSocket error: {e}. Retrying in 5s...")
             await asyncio.sleep(5)
 
 if __name__ == "__main__":
