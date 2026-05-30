@@ -17,6 +17,14 @@ Improvements over previous version
 12. KEPT  Broadcast throttle (every 5th packet)
 """
 
+import asyncio
+import os
+try:
+    from openflow_actuator import switch_route
+    ACTUATOR_AVAILABLE = True
+except ImportError:
+    ACTUATOR_AVAILABLE = False
+
 import json
 import numpy as np
 import torch
@@ -508,6 +516,11 @@ async def network_endpoint(websocket: WebSocket):
                 last_action = last_action,
                 adaptive_baseline = adaptive,
             )
+
+            # Only actuate if the route actually changed and actuation is enabled
+            if result["route"] != last_action and ACTUATOR_AVAILABLE and os.getenv("ENABLE_ACTUATION") == "true":
+                asyncio.create_task(asyncio.to_thread(switch_route, result["route"]))
+
             last_action = result["route"]
 
             # Respond to injector immediately with routing decision
