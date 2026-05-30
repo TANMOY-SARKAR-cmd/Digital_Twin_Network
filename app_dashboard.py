@@ -40,11 +40,14 @@ async def fetch_telemetry(stop_event, telemetry_queue):
         async with websockets.connect(uri) as websocket:
             while not stop_event.is_set():
                 data = await websocket.recv()
-                telemetry_queue.put({"type": "data", "payload": json.loads(data)})
+                if not stop_event.is_set():
+                    telemetry_queue.put({"type": "data", "payload": json.loads(data)})
     except Exception as e:
-        telemetry_queue.put({"type": "error", "error_msg": str(e)})
+        if not stop_event.is_set():
+            telemetry_queue.put({"type": "error", "error_msg": str(e)})
     finally:
-        telemetry_queue.put({"type": "finished"})
+        if not stop_event.is_set():
+            telemetry_queue.put({"type": "finished"})
 
 
 def start_background_loop(stop_event, telemetry_queue):
