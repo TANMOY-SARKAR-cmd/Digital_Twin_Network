@@ -25,6 +25,7 @@ async def test_api():
         await asyncio.sleep(0.5)
     else:
         proc.terminate()
+        proc.wait()
         pytest.fail("API failed to start")
 
     try:
