@@ -342,8 +342,6 @@ async def listen_brains(client_id: str, stop_event: threading.Event):
                 raw  = await ws.recv()
                 data = json.loads(raw)
 
-                if stop_event.is_set():
-                    continue
                 if not stop_event.is_set():
                     data_queue.put({
                         "type": "data",
