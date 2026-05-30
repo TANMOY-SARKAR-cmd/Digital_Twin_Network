@@ -87,7 +87,7 @@ async def simulate_network():
                         }
 
                         await websocket.send(json.dumps(payload))
-                        response = await websocket.recv()
+                        response = await asyncio.wait_for(websocket.recv(), timeout=5.0)
                         decision = json.loads(response)
 
                         route_str = "Primary (Fiber)" if decision["route"] == 0 else "Backup (Sat)"
