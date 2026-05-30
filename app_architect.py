@@ -26,6 +26,8 @@ st.title("🛠️ SDN Network Architect")
 # Initialize session state for simulation control
 if 'stop_simulation' not in st.session_state:
     st.session_state.stop_simulation = False
+if 'architect_stop_event' not in st.session_state:
+    st.session_state.architect_stop_event = threading.Event()
 
 # --- 1. Router Configuration ---
 st.header("1. Router Configuration")
@@ -48,9 +50,6 @@ datasets = [f for f in os.listdir("data") if f.endswith('.csv')]
 selected_dataset = st.selectbox("Select Traffic Scenario", datasets)
 
 # Feature list for the AI Model
-
-
-
 def parse_latency(val):
     nums = re.findall(r"\d+", str(val))
     return float(nums[0]) / 1000 if nums else 0.01
@@ -72,8 +71,13 @@ def parse_bandwidth(bw_str):
         return val              # Assume Bytes/s
 
 
+def _count_rows(file_path):
+    with open(file_path, "r", encoding="utf-8") as file_obj:
+        return max(sum(1 for _ in file_obj) - 1, 0)
+
+
 # --- 3. Simulation Engine ---
-async def start_injection(file_path, p_lat, b_lat, link_capacity):
+async def start_injection(file_path, p_lat, b_lat, link_capacity, delay_per_packet, stop_event):
     uri = "ws://localhost:8000/ws/network"
 
 
@@ -85,15 +89,19 @@ async def start_injection(file_path, p_lat, b_lat, link_capacity):
     # let's just make the progress bar an indeterminate spinner or omit it.
 
     # Let's count rows first to keep the progress bar working
-    total = sum(1 for _ in open(file_path)) - 1 # rough row count
+    total = await asyncio.to_thread(_count_rows, file_path)
 
     try:
         async with websockets.connect(uri) as websocket:
             i = 0
-            for chunk in pd.read_csv(file_path, chunksize=5000):
+            chunk_iter = pd.read_csv(file_path, chunksize=5000)
+            while True:
+                chunk = await asyncio.to_thread(next, chunk_iter, None)
+                if chunk is None:
+                    break
                 chunk.columns = [c.strip() for c in chunk.columns]
                 for row_idx in range(len(chunk)):
-                    if st.session_state.stop_simulation:
+                    if stop_event.is_set():
                         sim_queue.put({"type": "warning", "text": "🛑 Simulation manually terminated."})
                         return
 
@@ -144,16 +152,19 @@ async def start_injection(file_path, p_lat, b_lat, link_capacity):
         sim_queue.put({"type": "error", "text": f"Core API connection failed: {e}"})
 
 
-def run_injection_thread(file_path, p_lat, b_lat, link_capacity):
+def run_injection_thread(file_path, p_lat, b_lat, link_capacity, delay_per_packet, stop_event):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(start_injection(file_path, p_lat, b_lat, link_capacity))
+    loop.run_until_complete(
+        start_injection(file_path, p_lat, b_lat, link_capacity, delay_per_packet, stop_event)
+    )
 
 # Controls
 c1, c2 = st.columns(2)
 if c1.button("▶️ Start Simulation", type="primary", use_container_width=True):
     st.session_state.stop_simulation = False
     st.session_state.sim_active = True
+    st.session_state.architect_stop_event = threading.Event()
     while not sim_queue.empty():
         sim_queue.get()
     if selected_dataset:
@@ -164,7 +175,18 @@ if c1.button("▶️ Start Simulation", type="primary", use_container_width=True
         capacity = parse_bandwidth(bw_str)
 
         # Start in background instead of blocking:
-        t = threading.Thread(target=run_injection_thread, args=(file_path, parse_latency(primary_lat), parse_latency(backup_lat), capacity), daemon=True)
+        t = threading.Thread(
+            target=run_injection_thread,
+            args=(
+                file_path,
+                parse_latency(primary_lat),
+                parse_latency(backup_lat),
+                capacity,
+                delay_per_packet,
+                st.session_state.architect_stop_event
+            ),
+            daemon=True
+        )
         add_script_run_ctx(t)
         t.start()
     else:
@@ -172,6 +194,7 @@ if c1.button("▶️ Start Simulation", type="primary", use_container_width=True
 
 if c2.button("🛑 Stop Injection", use_container_width=True):
     st.session_state.stop_simulation = True
+    st.session_state.architect_stop_event.set()
     st.session_state.sim_active = False
 if st.session_state.get('sim_active', False):
     # Initialize session state for UI updates

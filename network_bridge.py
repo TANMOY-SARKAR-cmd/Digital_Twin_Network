@@ -28,6 +28,13 @@ selected_dataset = os.getenv("SELECTED_DATASET", "")
 _sim_speed   = max(1, int(os.getenv("SIM_SPEED", "2")))
 _delay_per_packet = 1.0 / _sim_speed
 
+
+def _is_lfs_pointer(file_path):
+    with open(file_path, "r", encoding="utf-8") as f_check:
+        first_line = f_check.readline()
+    return "version https://git-lfs.github.com/spec/v1" in first_line
+
+
 async def inject_traffic():
     uri = "ws://localhost:8000/ws/network"
     target_csv = (
@@ -41,18 +48,20 @@ async def inject_traffic():
 
     print(f"📡 Loading: {target_csv}")
 
-    with open(target_csv, 'r') as f_check:
-        first_line = f_check.readline()
-        if 'version https://git-lfs.github.com/spec/v1' in first_line:
-            print("❌ Dataset is a Git LFS pointer. Please run 'git lfs pull' to download the actual CSV data.")
-            import sys
-            sys.exit(1)
+    if await asyncio.to_thread(_is_lfs_pointer, target_csv):
+        print("❌ Dataset is a Git LFS pointer. Please run 'git lfs pull' to download the actual CSV data.")
+        import sys
+        sys.exit(1)
 
     print("✅ LFS check passed. Connecting...")
 
     async with websockets.connect(uri) as websocket:
         i = 0
-        for chunk in pd.read_csv(target_csv, chunksize=5000):
+        chunk_iter = pd.read_csv(target_csv, chunksize=5000)
+        while True:
+            chunk = await asyncio.to_thread(next, chunk_iter, None)
+            if chunk is None:
+                break
             chunk.columns = [c.strip() for c in chunk.columns]
             chunk = chunk.replace(['Infinity', 'inf', 'NaN'], np.nan).fillna(0)
 

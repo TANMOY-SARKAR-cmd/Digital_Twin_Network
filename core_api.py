@@ -533,6 +533,7 @@ async def network_endpoint(websocket: WebSocket):
                 "cluster_id":        result["cluster_id"],
                 "traffic_type":      result["traffic_type"],
                 "forecast":          result["forecast_raw"],
+                "forecast_vol":      result["forecast_raw"],
                 "lat_a":             float(payload.get("lat_a", 0.01)),
                 "lat_b":             float(payload.get("lat_b", 0.05)),
                 "obs_threshold":     obs_threshold,

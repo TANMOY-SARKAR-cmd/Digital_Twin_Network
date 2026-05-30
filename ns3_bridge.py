@@ -8,6 +8,12 @@ import numpy as np
 import glob
 
 
+def _is_lfs_pointer(file_path):
+    with open(file_path, "r", encoding="utf-8") as f_check:
+        first_line = f_check.readline()
+    return "version https://git-lfs.github.com/spec/v1" in first_line
+
+
 
 
 async def simulate_network():
@@ -22,16 +28,18 @@ async def simulate_network():
 
     print(f"📡 NS-3 Bridge Started. Injecting dataset: {csv_files[0]}")
 
-    with open(csv_files[0], 'r') as f_check:
-        first_line = f_check.readline()
-        if 'version https://git-lfs.github.com/spec/v1' in first_line:
-            print("❌ Dataset is a Git LFS pointer. Please run 'git lfs pull' to download the actual CSV data.")
-            import sys
-            sys.exit(1)
+    if await asyncio.to_thread(_is_lfs_pointer, csv_files[0]):
+        print("❌ Dataset is a Git LFS pointer. Please run 'git lfs pull' to download the actual CSV data.")
+        import sys
+        sys.exit(1)
 
     async with websockets.connect(uri) as websocket:
         i = 0
-        for chunk in pd.read_csv(csv_files[0], chunksize=5000):
+        chunk_iter = pd.read_csv(csv_files[0], chunksize=5000)
+        while True:
+            chunk = await asyncio.to_thread(next, chunk_iter, None)
+            if chunk is None:
+                break
             chunk.columns = chunk.columns.str.strip()
             chunk = chunk.replace(['Infinity', 'inf', 'NaN'], np.nan).fillna(0)
 

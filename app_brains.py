@@ -11,7 +11,6 @@ Shows the internal state of each of the 4 AI brains in real-time:
 import streamlit as st
 import nest_asyncio
 import threading
-from streamlit.runtime.scriptrunner import add_script_run_ctx
 
 nest_asyncio.apply()
 import asyncio
@@ -333,12 +332,12 @@ def render_all(fk: int):
 
 
 # ── WebSocket listener ─────────────────────────────────────────────────
-async def listen_brains():
-    uri = f"ws://127.0.0.1:8000/ws/dashboard?client_id={st.session_state.brains_cid}"
+async def listen_brains(client_id: str, stop_event: threading.Event):
+    uri = f"ws://127.0.0.1:8000/ws/dashboard?client_id={client_id}"
     try:
         async with websockets.connect(uri) as ws:
             while True:
-                if st.session_state.get("brains_stop"):
+                if stop_event.is_set():
                     break
                 raw  = await ws.recv()
                 data = json.loads(raw)
@@ -359,12 +358,16 @@ async def listen_brains():
         })
 
 def _start_brains_thread():
+    stop_event = threading.Event()
+    st.session_state.brains_stop_event = stop_event
+    client_id = st.session_state.brains_cid
+
     def _worker():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(listen_brains())
+        loop.run_until_complete(listen_brains(client_id, stop_event))
+
     t = threading.Thread(target=_worker, daemon=True)
-    add_script_run_ctx(t)
     t.start()
 
 # ── Connect / Disconnect buttons ──────────────────────────────────────
@@ -377,6 +380,9 @@ with bc:
 with bd:
     if st.button("⏏️ Disconnect", disabled=not st.session_state.brains_conn):
         st.session_state.brains_stop = True
+        stop_event = st.session_state.get("brains_stop_event")
+        if stop_event is not None:
+            stop_event.set()
 
 if not st.session_state.brains_auto:
     st.session_state.brains_auto = True
@@ -398,10 +404,10 @@ while not data_queue.empty():
             "is_attack": data.get("is_attack", False)
         })
         st.session_state.proph_h.append({
-            "forecast":  data.get("forecast_vol", 0.0),
+            "forecast": data.get("forecast", data.get("forecast_vol", 0.0)),
         })
         st.session_state.analyst_h.append({
-            "traffic_type": data.get("traffic_type", "Normal"),
+            "traffic_type": data.get("traffic_type", 0.0),
             "cluster_id":   data.get("cluster_id", 0),
         })
         st.session_state.manager_h.append({

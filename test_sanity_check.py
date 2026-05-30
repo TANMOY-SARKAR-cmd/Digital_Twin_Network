@@ -15,13 +15,13 @@ async def test_api():
     max_retries = 30
     for i in range(max_retries):
         try:
-            resp = requests.get("http://127.0.0.1:8000/health")
+            resp = await asyncio.to_thread(requests.get, "http://127.0.0.1:8000/health")
             if resp.status_code == 200:
                 print("API is up!")
                 break
         except requests.exceptions.ConnectionError:
             pass
-        time.sleep(0.5)
+        await asyncio.sleep(0.5)
     else:
         print("API failed to start")
         proc.terminate()
@@ -32,10 +32,13 @@ async def test_api():
                    websockets.connect("ws://127.0.0.1:8000/ws/compare") as ws_compare:
 
             for i in range(50):
-                payload = {feat: random.uniform(0, 100) for feat in FEATURES}
-                payload['ground_truth_attack'] = random.choice([True, False])
-                payload['lat_a'] = 0.01
-                payload['lat_b'] = 0.05
+                payload = {
+                    "features": [random.uniform(0, 100) for _ in FEATURES],
+                    "volume": random.uniform(100, 5000),
+                    "ground_truth_attack": random.choice([True, False]),
+                    "lat_a": 0.01,
+                    "lat_b": 0.05,
+                }
 
                 await ws_network.send(json.dumps(payload))
                 await ws_compare.send(json.dumps(payload))
