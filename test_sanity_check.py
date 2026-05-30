@@ -24,9 +24,8 @@ async def test_api():
             pass
         await asyncio.sleep(0.5)
     else:
-        print("API failed to start")
         proc.terminate()
-        return False
+        pytest.fail("API failed to start")
 
     try:
         async with websockets.connect("ws://127.0.0.1:8000/ws/network") as ws_network, \
@@ -52,12 +51,10 @@ async def test_api():
                 comp_data = json.loads(res_comp)
 
                 if "error" in net_data:
-                    print(f"Error in network response: {net_data['error']}")
-                    raise Exception("Backend error")
+                    pytest.fail(f"Error in network response: {net_data['error']}")
 
                 if "error" in comp_data:
-                    print(f"Error in compare response: {comp_data['error']}")
-                    raise Exception("Backend error")
+                    pytest.fail(f"Error in compare response: {comp_data['error']}")
 
                 print(f"Packet {i+1} processed successfully")
         print("Test passed 100%")
