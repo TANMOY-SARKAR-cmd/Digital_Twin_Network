@@ -83,7 +83,7 @@ async def inject_traffic():
 
                         payload = {"features": features, "volume": vol, "lat_a": lat_a, "lat_b": lat_b}
                         await websocket.send(json.dumps(payload))
-                        await websocket.recv()
+                        await asyncio.wait_for(websocket.recv(), timeout=5.0)
                         await asyncio.sleep(_delay_per_packet)
                         i += 1
             break  # Exit if successfully finished the whole dataset
