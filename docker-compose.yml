@@ -1,0 +1,48 @@
+services:
+  sender:
+    image: alpine
+    command: sleep infinity
+    networks:
+      sender_link:
+        ipv4_address: 10.0.1.2
+
+  sdn_router:
+    image: alpine
+    cap_add:
+      - NET_ADMIN
+    command: sh -c "if [ -f /setup_router.sh ]; then chmod +x /setup_router.sh && /setup_router.sh; fi; sleep infinity"
+    volumes:
+      - ./setup_router.sh:/setup_router.sh
+    networks:
+      sender_link:
+        ipv4_address: 10.0.1.3
+      primary_link:
+        ipv4_address: 10.0.2.2
+      backup_link:
+        ipv4_address: 10.0.3.2
+
+  receiver:
+    image: alpine
+    command: sleep infinity
+    networks:
+      primary_link:
+        ipv4_address: 10.0.2.3
+      backup_link:
+        ipv4_address: 10.0.3.3
+
+networks:
+  sender_link:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.0.1.0/24
+  primary_link:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.0.2.0/24
+  backup_link:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.0.3.0/24
