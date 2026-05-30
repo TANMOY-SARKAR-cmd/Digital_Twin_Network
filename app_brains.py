@@ -337,7 +337,7 @@ def render_all(fk: int):
 
 
 # ── WebSocket listener ─────────────────────────────────────────────────
-async def listen_brains(client_id: str, stop_event: threading.Event):
+async def listen_brains(client_id: str, stop_event: threading.Event, data_queue: queue.Queue):
     uri = f"ws://127.0.0.1:8000/ws/dashboard?client_id={client_id}"
     try:
         async with websockets.connect(uri) as ws:
@@ -348,20 +348,20 @@ async def listen_brains(client_id: str, stop_event: threading.Event):
                 data = json.loads(raw)
 
                 if not stop_event.is_set():
-                    st.session_state.data_queue.put({
+                    data_queue.put({
                         "type": "data",
                         "data": data
                     })
 
     except Exception as e:
         if not stop_event.is_set():
-            st.session_state.data_queue.put({
+            data_queue.put({
                 "type": "error",
                 "error": str(e)
             })
     finally:
         if not stop_event.is_set():
-            st.session_state.data_queue.put({
+            data_queue.put({
                 "type": "finished"
             })
 
@@ -370,12 +370,12 @@ def _start_brains_thread():
     st.session_state.brains_stop_event = stop_event
     client_id = st.session_state.brains_cid
 
-    def _worker():
+    def _worker(stop_event, data_queue):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(listen_brains(client_id, stop_event))
+        loop.run_until_complete(listen_brains(client_id, stop_event, data_queue))
 
-    t = threading.Thread(target=_worker, daemon=True)
+    t = threading.Thread(target=_worker, args=(st.session_state.brains_stop_event, st.session_state.data_queue), daemon=True)
     t.start()
 
 # ── Connect / Disconnect buttons ──────────────────────────────────────
