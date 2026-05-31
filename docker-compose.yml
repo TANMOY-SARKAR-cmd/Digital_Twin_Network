@@ -1,48 +1,62 @@
-services:
-  sender:
-    image: alpine
-    command: sleep infinity
-    networks:
-      sender_link:
-        ipv4_address: 10.0.1.2
+version: '3.8'
 
+services:
+  # 1. The OpenWrt Edge Router (with LuCI Web UI)
   sdn_router:
-    image: alpine
+    image: openwrtorg/rootfs:x86-64
+    container_name: sdn_router
+    # OpenWrt needs /sbin/init to run its services properly
+    command: /sbin/init
+    privileged: true
     cap_add:
       - NET_ADMIN
-    command: sh -c "if [ -f /setup_router.sh ]; then chmod +x /setup_router.sh && /setup_router.sh; fi; sleep infinity"
-    volumes:
-      - ./setup_router.sh:/setup_router.sh
+    ports:
+      - "8080:80"   # Access LuCI Web UI via http://localhost:8080
     networks:
-      sender_link:
-        ipv4_address: 10.0.1.3
-      primary_link:
-        ipv4_address: 10.0.2.2
-      backup_link:
-        ipv4_address: 10.0.3.2
+      wan_network:
+        ipv4_address: 172.20.0.2  # Public IP
+      lan_network:
+        ipv4_address: 10.0.0.1    # Internal Gateway IP
 
-  receiver:
-    image: alpine
-    command: sleep infinity
+  # 2. Protected Web Server
+  web_server:
+    image: nginx:alpine
+    container_name: web_server
     networks:
-      primary_link:
-        ipv4_address: 10.0.2.3
-      backup_link:
-        ipv4_address: 10.0.3.3
+      lan_network:
+        ipv4_address: 10.0.0.100
+    depends_on:
+      - sdn_router
+
+  # 3. Protected Lightweight App Server
+  api_server:
+    image: node:alpine
+    container_name: api_server
+    command: sh -c "echo 'API Running' > index.html && python -m http.server 3000"
+    networks:
+      lan_network:
+        ipv4_address: 10.0.0.101
+    depends_on:
+      - sdn_router
+
+  # 4. The Attacker / External Client
+  external_client:
+    image: alpine:latest
+    container_name: external_client
+    command: tail -f /dev/null
+    networks:
+      wan_network:
+        ipv4_address: 172.20.0.10
 
 networks:
-  sender_link:
+  wan_network:
     driver: bridge
     ipam:
       config:
-        - subnet: 10.0.1.0/24
-  primary_link:
+        - subnet: 172.20.0.0/16
+  lan_network:
     driver: bridge
+    internal: true # STRICT ISOLATION: No outside access allowed directly
     ipam:
       config:
-        - subnet: 10.0.2.0/24
-  backup_link:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 10.0.3.0/24
+        - subnet: 10.0.0.0/24
