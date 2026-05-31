@@ -5,13 +5,14 @@ services:
   sdn_router:
     image: openwrtorg/rootfs:x86-64
     container_name: sdn_router
-    # OpenWrt needs /sbin/init to run its services properly
     command: /sbin/init
     privileged: true
     cap_add:
       - NET_ADMIN
     ports:
       - "8080:80"   # Access LuCI Web UI via http://localhost:8080
+    volumes:
+      - ./setup_router.sh:/setup_router.sh
     networks:
       wan_network:
         ipv4_address: 172.20.0.2  # Public IP
@@ -30,7 +31,7 @@ services:
 
   # 3. Protected Lightweight App Server
   api_server:
-    image: node:alpine
+    image: python:alpine
     container_name: api_server
     command: sh -c "echo 'API Running' > index.html && python -m http.server 3000"
     networks:
@@ -43,7 +44,10 @@ services:
   external_client:
     image: alpine:latest
     container_name: external_client
-    command: tail -f /dev/null
+    cap_add:
+      - NET_ADMIN
+    # Add a static route so the attacker knows how to reach the LAN through the router
+    command: sh -c "ip route add 10.0.0.0/24 via 172.20.0.2 && tail -f /dev/null"
     networks:
       wan_network:
         ipv4_address: 172.20.0.10
