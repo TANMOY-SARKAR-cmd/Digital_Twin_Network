@@ -520,9 +520,16 @@ async def network_endpoint(websocket: WebSocket):
                 adaptive_baseline = adaptive,
             )
 
+            # Extract the source IP from the payload
+            src_ip = payload.get("src_ip", "172.20.0.10")
+
             # Actuate the physical Docker switch if enabled
-            if result["route"] != last_action and ACTUATOR_AVAILABLE and os.getenv("ENABLE_ACTUATION") == "true":
-                asyncio.create_task(asyncio.to_thread(switch_route, result["route"]))
+            if (result["route"] != last_action and
+                    ACTUATOR_AVAILABLE and
+                    os.getenv("ENABLE_ACTUATION") == "true"):
+                asyncio.create_task(
+                    asyncio.to_thread(switch_route, result["route"], src_ip)
+                )
 
             last_action = result["route"]
 
