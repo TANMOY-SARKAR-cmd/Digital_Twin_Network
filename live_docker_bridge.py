@@ -36,7 +36,11 @@ def packet_handler(pkt):
             "lat_a": 0.01,  # Default base latency
             "lat_b": 0.05   # Default satellite latency
         }
-        packet_queue.put(payload)
+        try:
+            packet_queue.put_nowait(payload)
+        except queue.Full:
+            # Consumer is slower than producer; drop to avoid unbounded backlog.
+            pass
 
 
 def run_sniffer():
