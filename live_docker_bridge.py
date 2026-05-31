@@ -12,7 +12,7 @@ URI = "ws://127.0.0.1:8000/ws/network"
 IFACE = os.getenv("IFACE", None)
 
 # Shared queue to move packets from the Scapy thread to the Asyncio thread
-packet_queue = queue.Queue()
+packet_queue = queue.Queue(maxsize=int(os.getenv("PACKET_QUEUE_MAXSIZE", "10000")))
 
 
 def packet_handler(pkt):
