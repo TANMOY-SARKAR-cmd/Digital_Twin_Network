@@ -1,15 +1,15 @@
 #!/bin/sh
 
-# Install openvswitch and iproute2
-apk update
-apk add openvswitch iproute2
+echo "Updating OpenWrt Packages..."
+opkg update
 
-# Start ovsdb-server and ovs-vswitchd manually for Alpine
-mkdir -p /run/openvswitch /etc/openvswitch
-if [ ! -f /etc/openvswitch/conf.db ]; then
-    ovsdb-tool create /etc/openvswitch/conf.db /usr/share/openvswitch/vswitch.ovsschema
-fi
-ovsdb-server --remote=punix:/run/openvswitch/db.sock --pidfile --detach
+echo "Installing Open vSwitch..."
+opkg install openvswitch ip-full
+
+# Start OVS services
+mkdir -p /var/run/openvswitch
+ovsdb-tool create /etc/openvswitch/conf.db /usr/share/openvswitch/vswitch.ovsschema
+ovsdb-server --remote=punix:/var/run/openvswitch/db.sock --pidfile --detach
 ovs-vsctl --no-wait init
 ovs-vswitchd --pidfile --detach
 sleep 2
@@ -17,38 +17,31 @@ sleep 2
 # Create OVS bridge br0
 ovs-vsctl add-br br0
 
-# Identify interfaces
-# Sender link interface has IP 10.0.1.3
-SENDER_IF=$(ip -4 addr show | grep 10.0.1.3 | awk '{print $NF}')
-# Primary link interface has IP 10.0.2.2
-PRIMARY_IF=$(ip -4 addr show | grep 10.0.2.2 | awk '{print $NF}')
-# Backup link interface has IP 10.0.3.2
-BACKUP_IF=$(ip -4 addr show | grep 10.0.3.2 | awk '{print $NF}')
+# Identify WAN and LAN interfaces inside OpenWrt
+WAN_IF=$(ip -4 addr show | grep 172.20.0.2 | awk '{print $NF}')
+LAN_IF=$(ip -4 addr show | grep 10.0.0.1 | awk '{print $NF}')
 
-# Save interfaces to file so actuator can read them easily
-echo "$SENDER_IF" > /sender_if.txt
-echo "$PRIMARY_IF" > /primary_if.txt
-echo "$BACKUP_IF" > /backup_if.txt
+# Save interfaces to file so the Python actuator can read them later
+echo "$WAN_IF" > /wan_if.txt
+echo "$LAN_IF" > /lan_if.txt
 
-# Attach primary and backup interfaces to br0
-# We also need to attach sender_link to br0, otherwise traffic from sender cannot reach receiver
-ovs-vsctl add-port br0 $SENDER_IF
-ovs-vsctl add-port br0 $PRIMARY_IF
-ovs-vsctl add-port br0 $BACKUP_IF
+# Remove IP addresses from physical interfaces
+ip addr flush dev $WAN_IF
+ip addr flush dev $LAN_IF
 
-# Set IP address on br0 to act as gateway (optional, but good for routing if needed)
-# Remove IP from physical interfaces and move to bridge if needed, but for simple layer-2 bridging,
-# just adding ports is enough. Wait, if it acts as a router, we might need it to be a bridge
-# Since we use ovs-ofctl to forward traffic, we will use Layer 2 bridging based on MAC or IP.
-# Actually, the user says "forces all traffic from the sender IP to output explicitly through the port corresponding to the chosen route"
-# This implies OpenFlow rules will match src IP and act on output port.
+# Attach interfaces to the OVS bridge
+ovs-vsctl add-port br0 $WAN_IF
+ovs-vsctl add-port br0 $LAN_IF
 
-# Inject 50ms latency onto the backup_link interface using tc
-tc qdisc add dev $BACKUP_IF root netem delay 50ms
+# Assign the gateway IPs directly to the bridge so OpenWrt can route
+ip addr add 172.20.0.2/16 dev br0
+ip addr add 10.0.0.1/24 dev br0
+ip link set br0 up
 
-# Optional: Add initial flow to drop all or forward to primary by default
-# We leave it empty or default NORMAL forwarding.
-# If we want NORMAL forwarding off, we could remove normal action:
-# ovs-ofctl del-flows br0
+# Enable IP forwarding globally
+sysctl -w net.ipv4.ip_forward=1
 
-echo "Setup router complete"
+# Add basic NORMAL flow for the AI baseline
+ovs-ofctl add-flow br0 "priority=0,actions=NORMAL"
+
+echo "✅ OpenWrt Edge Router + OVS Setup Complete!"
