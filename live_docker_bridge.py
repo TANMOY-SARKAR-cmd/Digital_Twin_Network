@@ -68,12 +68,13 @@ async def stream_to_api():
                         )
                         decision = json.loads(response)
 
-                        if decision["route"] == 0:
-                            route_str = "Primary (Fiber)"
-                        else:
-                            route_str = "Backup (Sat)"
-                        print(f"📡 Sent {payload['volume']} bytes "
-                              f"| AI Route: {route_str}")
+                        route = decision.get("route")
+                        if route is None:
+                            print(f"⚠️ Unexpected API response: {decision}")
+                            continue
+
+                        route_str = "Primary (Fiber)" if route == 0 else "Backup (Sat)"
+                        print(f"📡 Sent {payload['volume']} bytes | AI Route: {route_str}")
                     else:
                         await asyncio.sleep(0.01)  # Yield to event loop
 
