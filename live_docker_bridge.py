@@ -12,12 +12,16 @@ URI = "ws://127.0.0.1:8000/ws/network"
 IFACE = os.getenv("IFACE", None)
 
 # Shared queue to move packets from the Scapy thread to the Asyncio thread
-packet_queue = queue.Queue(maxsize=int(os.getenv("PACKET_QUEUE_MAXSIZE", "10000")))
+# maxsize parsed from env
+maxsize = int(os.getenv("PACKET_QUEUE_MAXSIZE", "10000"))
+packet_queue = queue.Queue(maxsize=maxsize)
 
 
 def packet_handler(pkt):
     """Callback for Scapy to process packets."""
     if IP in pkt:
+        src_ip = pkt[IP].src
+
         # Extract basic features to mimic the CICFlowMeter CSV shape
         pkt_len = len(pkt)
         protocol = pkt[IP].proto
@@ -34,12 +38,13 @@ def packet_handler(pkt):
             "volume": float(pkt_len),  # The critical metric for DDoS detection
             "ground_truth_attack": False,  # Unknown in live traffic
             "lat_a": 0.01,  # Default base latency
-            "lat_b": 0.05   # Default satellite latency
+            "lat_b": 0.05,  # Default satellite latency
+            "src_ip": src_ip
         }
         try:
             packet_queue.put_nowait(payload)
         except queue.Full:
-            # Consumer is slower than producer; drop to avoid unbounded backlog.
+            # Consumer is slower than producer; drop to avoid unbounded backlog
             pass
 
 
@@ -73,8 +78,10 @@ async def stream_to_api():
                             print(f"⚠️ Unexpected API response: {decision}")
                             continue
 
-                        route_str = "Primary (Fiber)" if route == 0 else "Backup (Sat)"
-                        print(f"📡 Sent {payload['volume']} bytes | AI Route: {route_str}")
+                        route_str = ("Primary (Fiber)" if route == 0
+                                     else "Backup (Sat)")
+                        vol = payload['volume']
+                        print(f"📡 Sent {vol} bytes | AI Route: {route_str}")
                     else:
                         await asyncio.sleep(0.01)  # Yield to event loop
 

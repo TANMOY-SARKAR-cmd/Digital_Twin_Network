@@ -527,9 +527,23 @@ async def network_endpoint(websocket: WebSocket):
             if (result["route"] != last_action and
                     ACTUATOR_AVAILABLE and
                     os.getenv("ENABLE_ACTUATION") == "true"):
-                asyncio.create_task(
-                    asyncio.to_thread(switch_route, result["route"], src_ip)
-                )
+                target_to_actuate = None
+
+                if result["route"] == 1:
+                    # Attack detected: block the current packet's IP and remember it
+                    currently_blocked_ip = src_ip
+                    target_to_actuate = currently_blocked_ip
+                else:
+                    # Attack cleared: unblock the IP that we previously blocked
+                    target_to_actuate = currently_blocked_ip
+
+                if target_to_actuate:
+                    asyncio.create_task(
+                        asyncio.to_thread(switch_route, result["route"], target_to_actuate)
+                    )
+
+                if result["route"] == 0:
+                    currently_blocked_ip = None  # Clear state after unblocking
 
             last_action = result["route"]
 
@@ -617,12 +631,12 @@ async def compare_endpoint(websocket: WebSocket):
     _active_compare_ws = websocket
     print("⚔️  Comparison session started!")
 
-    seq_buf       = deque(maxlen=10)
-    vol_buf       = deque(maxlen=60)
-    err_buf       = deque(maxlen=10)
-    conf_buf      = deque(maxlen=5)
-    adaptive      = {}
-    last_action   = 0
+    seq_buf = deque(maxlen=10)
+    vol_buf = deque(maxlen=60)
+    err_buf = deque(maxlen=10)
+    conf_buf = deque(maxlen=5)
+    adaptive = {}
+    last_action = 0
     normal_router = NormalRouter()
     packet_index  = 0
 

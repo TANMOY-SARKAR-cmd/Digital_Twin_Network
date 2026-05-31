@@ -19,8 +19,10 @@ def parse_latency(val, default_ms=10):
         return default_ms / 1000
 
 
-primary_latency_base = parse_latency(os.getenv("PRIMARY_LAT", "10"), default_ms=10)
-backup_latency_base = parse_latency(os.getenv("BACKUP_LAT", "50"), default_ms=50)
+primary_latency_base = parse_latency(
+    os.getenv("PRIMARY_LAT", "10"), default_ms=10)
+backup_latency_base = parse_latency(
+    os.getenv("BACKUP_LAT", "50"), default_ms=50)
 selected_dataset = os.getenv("SELECTED_DATASET", "")
 # FIX: Respect the injection-speed slider set in the Architect UI.
 # The Architect writes SIM_SPEED (packets/sec) to the environment before
@@ -52,7 +54,9 @@ async def inject_traffic():
     print(f"📡 Loading: {target_csv}")
 
     if await asyncio.to_thread(_is_lfs_pointer, target_csv):
-        print("❌ Dataset is a Git LFS pointer. Please run 'git lfs pull' to download the actual CSV data.")
+        msg = ("❌ Dataset is a Git LFS pointer. Please run "
+               "'git lfs pull' to download the actual CSV data.")
+        print(msg)
         import sys
         sys.exit(1)
 
@@ -68,23 +72,36 @@ async def inject_traffic():
                     if chunk is None:
                         break
                     chunk.columns = [c.strip() for c in chunk.columns]
-                    chunk = chunk.replace(['Infinity', 'inf', 'NaN'], np.nan).fillna(0)
+                    chunk = chunk.replace(
+                        ['Infinity', 'inf', 'NaN'], np.nan).fillna(0)
 
                     for row_idx in range(len(chunk)):
                         row = chunk.iloc[row_idx]
-                        features = pd.to_numeric(row[FEATURES], errors='coerce').fillna(0).astype(float).values.tolist()
-                        vol = float(row.get('Total Length of Fwd Packets', 0) + row.get('Total Length of Bwd Packets', 0))
+                        features = pd.to_numeric(
+                            row[FEATURES], errors='coerce'
+                        ).fillna(0).astype(float).values.tolist()
+                        vol = float(
+                            row.get('Total Length of Fwd Packets', 0) +
+                            row.get('Total Length of Bwd Packets', 0)
+                        )
 
-                        raw_label = str(row.get('Label', 'BENIGN')).strip().upper()
+                        raw_label = str(
+                            row.get('Label', 'BENIGN')).strip().upper()
                         is_attack = raw_label != 'BENIGN'
 
-                        lat_a = 0.95 if is_attack else np.random.uniform(primary_latency_base, primary_latency_base + 0.02)
+                        lat_a = (0.95 if is_attack else np.random.uniform(
+                            primary_latency_base, primary_latency_base + 0.02))
                         lat_b = backup_latency_base
 
                         if is_attack:
-                            print(f"🔥 Packet {i}: ATTACK ({raw_label}) -> lat_a: {lat_a}")
+                            print(f"🔥 Packet {i}: ATTACK ({raw_label}) "
+                                  f"-> lat_a: {lat_a}")
 
-                        payload = {"features": features, "volume": vol, "lat_a": lat_a, "lat_b": lat_b}
+                        payload = {
+                            "features": features, "volume": vol,
+                            "lat_a": lat_a, "lat_b": lat_b,
+                            "src_ip": "10.0.0.99"
+                        }
                         await websocket.send(json.dumps(payload))
                         await asyncio.wait_for(websocket.recv(), timeout=5.0)
                         await asyncio.sleep(_delay_per_packet)
@@ -92,7 +109,8 @@ async def inject_traffic():
             break  # Exit if successfully finished the whole dataset
         except asyncio.CancelledError:
             raise
-        except (asyncio.TimeoutError, OSError, websockets.exceptions.WebSocketException) as e:
+        except (asyncio.TimeoutError, OSError,
+                websockets.exceptions.WebSocketException) as e:
             print(f"WebSocket error: {e}. Retrying in 5s...")
             await asyncio.sleep(5)
 
