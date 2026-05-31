@@ -25,7 +25,11 @@ async def test_api():
         await asyncio.sleep(0.5)
     else:
         proc.terminate()
-        proc.wait()  # Ensure the process releases the port before failing
+        try:
+            proc.wait(timeout=3.0)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
         pytest.fail("API failed to start")
 
     try:
@@ -62,7 +66,11 @@ async def test_api():
         return True
     finally:
         proc.terminate()
-        proc.wait()
+        try:
+            proc.wait(timeout=3.0)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
 
 
 if __name__ == "__main__":
