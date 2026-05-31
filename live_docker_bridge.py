@@ -47,7 +47,7 @@ def run_sniffer():
     """Runs the Scapy sniffer in a blocking background thread."""
     iface_str = IFACE if IFACE else 'ALL'
     print(f"🕵️  Starting live packet sniffer on interface: {iface_str}")
-    sniff(iface=IFACE, prn=packet_handler, store=False)
+    sniff(iface=IFACE, filter="ip", prn=packet_handler, store=False)
 
 
 async def stream_to_api():
