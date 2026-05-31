@@ -1,7 +1,9 @@
+import os
 import subprocess
+import sys
 import time
-import requests
 
+import pytest
 def test_bridge_starts():
     # Ensure bridge doesn't crash immediately (simulating API failure retry)
     proc = subprocess.Popen(["sudo", "/home/jules/.pyenv/versions/3.12.13/bin/python3", "live_docker_bridge.py"],
