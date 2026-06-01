@@ -70,8 +70,9 @@ def packet_handler(pkt):
             if payload_len > 0 or is_syn:
                 # FIX: Correct TCP sequence math for SYN + Payload
                 # (TCP Fast Open)
-                seq_next = tcp_layer.seq + payload_len + \
-                    (1 if is_syn else 0)
+                seq_next = (
+                    tcp_layer.seq + payload_len + (1 if is_syn else 0)
+                )
                 track_key = (dst_ip, src_ip, tcp_layer.dport,
                              tcp_layer.sport, seq_next)
 
