@@ -41,7 +41,7 @@ services:
     image: nginx:alpine
     container_name: admin_web_server
     # Route outbound traffic through the Core Switch
-    command: sh -c "ip route add default via 10.0.10.1 && nginx -g 'daemon off;'"
+    command: sh -c "ip route replace default via 10.0.10.1 && nginx -g 'daemon off;'"
     networks:
       admin_network:
         ipv4_address: 10.0.10.100
