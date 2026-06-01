@@ -36,27 +36,41 @@ def packet_handler(pkt):
         # --- LIVE TCP RTT CALCULATION ---
         if TCP in pkt:
             tcp_layer = pkt[TCP]
-            current_time = time.time()
+            current_time = time.monotonic()
 
             # 1. Check if this packet is an ACK for something we sent
-            ack_key = (src_ip, dst_ip, tcp_layer.ack)
-            if ack_key in expected_acks:
-                rtt = current_time - expected_acks.pop(ack_key)
-                rtt = min(rtt, 2.0)   # Cap anomalies at 2 seconds
+            is_ack = bool(tcp_layer.flags & 0x10)
+            if is_ack:
+                ack_key = (
+                    src_ip,
+                    dst_ip,
+                    tcp_layer.sport,
+                    tcp_layer.dport,
+                    tcp_layer.ack,
+                )
+                sent_time = expected_acks.pop(ack_key, None)
+                if sent_time is not None:
+                    rtt = current_time - sent_time
+                    rtt = min(rtt, 2.0)  # Cap anomalies at 2 seconds
 
-                # Update Exponential Moving Average (EMA) - 80% old, 20% new
-                ema_latency = (0.8 * ema_latency) + (0.2 * rtt)
+                    # Update Exponential Moving Average (EMA) - 80% old, 20% new
+                    ema_latency = (0.8 * ema_latency) + (0.2 * rtt)
 
             # 2. Track this packet if it expects an ACK (Payload or SYN flag)
             payload_len = len(tcp_layer.payload)
-            is_syn = tcp_layer.flags & 0x02
+            is_syn = bool(tcp_layer.flags & 0x02)
 
             if payload_len > 0 or is_syn:
-                seq_next = tcp_layer.seq + \
-                    (payload_len if payload_len > 0 else 1)
-                track_key = (dst_ip, src_ip, seq_next)
+                seq_next = tcp_layer.seq + (payload_len if payload_len > 0 else 1)
+                track_key = (
+                    dst_ip,
+                    src_ip,
+                    tcp_layer.dport,
+                    tcp_layer.sport,
+                    seq_next,
+                )
 
-                # Bounded dictionary (O(1) LRU eviction) to survive SYN floods
+                # Bounded dictionary (FIFO eviction) to survive SYN floods
                 if len(expected_acks) >= MAX_TRACK_SIZE:
                     expected_acks.pop(next(iter(expected_acks)))
                 expected_acks[track_key] = current_time
