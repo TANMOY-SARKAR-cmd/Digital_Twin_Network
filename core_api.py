@@ -486,6 +486,7 @@ async def network_endpoint(websocket: WebSocket):
     adaptive = {}
     last_action = 0
     pkt_count   = 0
+    currently_blocked_ip = None
 
     # Pre-fill vol_buf so prophet always gets a full sequence
     vol_buf.extend([0.0] * 60)
@@ -524,23 +525,19 @@ async def network_endpoint(websocket: WebSocket):
             src_ip = payload.get("src_ip", "172.20.0.10")
 
             # Actuate the physical Docker switch if enabled
-            if (result["route"] != last_action and
-                    ACTUATOR_AVAILABLE and
-                    os.getenv("ENABLE_ACTUATION") == "true"):
+            if result["route"] != last_action and ACTUATOR_AVAILABLE and os.getenv("ENABLE_ACTUATION") == "true":
                 target_to_actuate = None
 
                 if result["route"] == 1:
                     # Attack detected: block the current packet's IP and remember it
                     currently_blocked_ip = src_ip
                     target_to_actuate = currently_blocked_ip
-                else:
+                elif result["route"] == 0 and currently_blocked_ip is not None:
                     # Attack cleared: unblock the IP that we previously blocked
                     target_to_actuate = currently_blocked_ip
 
                 if target_to_actuate:
-                    asyncio.create_task(
-                        asyncio.to_thread(switch_route, result["route"], target_to_actuate)
-                    )
+                    asyncio.create_task(asyncio.to_thread(switch_route, result["route"], target_to_actuate))
 
                 if result["route"] == 0:
                     currently_blocked_ip = None  # Clear state after unblocking

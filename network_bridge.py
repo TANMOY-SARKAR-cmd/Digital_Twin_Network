@@ -100,7 +100,7 @@ async def inject_traffic():
                         payload = {
                             "features": features, "volume": vol,
                             "lat_a": lat_a, "lat_b": lat_b,
-                            "src_ip": "10.0.0.99"
+                            "src_ip": "172.20.0.10"
                         }
                         await websocket.send(json.dumps(payload))
                         await asyncio.wait_for(websocket.recv(), timeout=5.0)
