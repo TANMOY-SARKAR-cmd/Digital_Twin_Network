@@ -78,8 +78,7 @@ async def stream_to_api():
                             print(f"⚠️ Unexpected API response: {decision}")
                             continue
 
-                        route_str = ("Primary (Fiber)" if route == 0
-                                     else "Backup (Sat)")
+                        route_str = {0: "Traffic Allowed", 1: "IP Blocked (Mitigating)"}.get(route, f"Unknown ({route})")
                         vol = payload['volume']
                         print(f"📡 Sent {vol} bytes | AI Route: {route_str}")
                     else:

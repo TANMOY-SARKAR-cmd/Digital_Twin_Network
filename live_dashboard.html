@@ -22,8 +22,8 @@
             container: document.getElementById('cy'),
             elements: [
                 { data: { id: 'Router_A', label: 'Source (A)' } },
-                { data: { id: 'Router_B', label: 'Primary (B)' } },
-                { data: { id: 'Router_C', label: 'Backup (C)' } },
+                { data: { id: 'Router_B', label: 'Traffic Allowed (B)' } },
+                { data: { id: 'Router_C', label: 'IP Blocked (Mitigating) (C)' } },
                 { data: { id: 'Server_Farm', label: 'Dest (D)' } },
 
                 // Primary Path
@@ -92,7 +92,7 @@
                 statusEl.innerHTML = "<span style='color:#2ecc71;'>✅ Network Stable</span>";
             }
 
-            // Route 0 = Primary, Route 1 = Backup
+            // Route 0 = Traffic Allowed, Route 1 = IP Blocked (Mitigating)
             if(data.route === 0) {
                 cy.getElementById('A-B').addClass('active-primary');
                 cy.getElementById('B-D').addClass('active-primary');

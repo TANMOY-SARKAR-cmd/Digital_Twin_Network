@@ -148,7 +148,7 @@ if st.session_state.ws_running:
             ))
 
             route_color = "#10b981" if parsed["route"] == 0 else "#ef4444"
-            route_name = "Primary Link (Fiber)" if parsed["route"] == 0 else "Backup Link (Sat)"
+            route_name = "Traffic Allowed" if parsed["route"] == 0 else "IP Blocked (Mitigating)"
 
             fig_topo.add_trace(go.Scatter(
                 x=[1, 2], y=[0.5, 0.5], mode='lines+text',
