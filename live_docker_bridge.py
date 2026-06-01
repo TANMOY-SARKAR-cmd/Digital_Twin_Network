@@ -21,11 +21,10 @@ packet_queue = queue.Queue(maxsize=maxsize)
 ema_latency = 0.01  # Default to 10ms
 expected_acks = {}  # Dictionary to track packet transmission times
 MAX_TRACK_SIZE = 5000  # Prevent OOM memory leaks during a SYN flood
-LOCAL_PREFIXES = ("10.0.0.", "172.20.0.2")  # Our DMZ LAN and Gateway
 
 
 def packet_handler(pkt):
-    """Callback for Scapy to calculate real-time TCP RTT."""
+    """Callback for Scapy to calculate real-time TCP RTT & Congestion."""
     global ema_latency
 
     if IP in pkt:
@@ -34,18 +33,17 @@ def packet_handler(pkt):
         pkt_len = len(pkt)
         protocol = pkt[IP].proto
 
-        # --- LIVE TCP RTT CALCULATION ---
+        # --- LIVE TCP RTT / CONGESTION CALCULATION ---
         if TCP in pkt:
             tcp_layer = pkt[TCP]
-            current_time = time.monotonic()  # Fix: Use monotonic clock
+            current_time = time.monotonic()
 
-            # 1. Process incoming ACKs (from outside to inside)
+            # 1. Process ACKs (Matches both Network RTT and Local Turnaround)
             is_ack = bool(tcp_layer.flags & 0x10)
             if is_ack:
-                # Fix: Include ports to prevent cross-connection collisions
-                ack_key = (
-                    src_ip, dst_ip, tcp_layer.sport, tcp_layer.dport,
-                    tcp_layer.ack)
+                # Match using ports to prevent cross-connection collisions
+                ack_key = (src_ip, dst_ip, tcp_layer.sport,
+                           tcp_layer.dport, tcp_layer.ack)
                 sent_time = expected_acks.pop(ack_key, None)
 
                 if sent_time is not None:
@@ -54,18 +52,15 @@ def packet_handler(pkt):
                     # Update EMA - 80% old, 20% new
                     ema_latency = (0.8 * ema_latency) + (0.2 * rtt)
 
-            # 2. Track outgoing packets (from inside to outside)
+            # 2. Track any packet requiring an ACK (payload or SYN flag)
             payload_len = len(tcp_layer.payload)
             is_syn = bool(tcp_layer.flags & 0x02)
-            is_outbound = src_ip.startswith(LOCAL_PREFIXES)
 
-            if is_outbound and (payload_len > 0 or is_syn):
-                seq_next = tcp_layer.seq + (
-                    payload_len if payload_len > 0 else 1)
-                # Fix: Include ports to prevent cross-connection collisions
-                track_key = (
-                    dst_ip, src_ip, tcp_layer.dport, tcp_layer.sport,
-                    seq_next)
+            if payload_len > 0 or is_syn:
+                seq_next = tcp_layer.seq + payload_len + (1 if is_syn else 0)
+                # Include ports to prevent cross-connection collisions
+                track_key = (dst_ip, src_ip, tcp_layer.dport,
+                             tcp_layer.sport, seq_next)
 
                 # Bounded dictionary (FIFO eviction) to survive SYN floods
                 if len(expected_acks) >= MAX_TRACK_SIZE:
@@ -81,7 +76,8 @@ def packet_handler(pkt):
             "features": features,
             "volume": float(pkt_len),
             "ground_truth_attack": False,
-            "lat_a": round(ema_latency, 4),  # 🔴 LIVE PHYSICAL LATENCY
+            # 🔴 LIVE PHYSICAL LATENCY (Network + Buffer Bloat)
+            "lat_a": round(ema_latency, 4),
             "lat_b": 0.05,
             "src_ip": src_ip
         }
