@@ -57,8 +57,7 @@ def packet_handler(pkt):
             is_syn = bool(tcp_layer.flags & 0x02)
 
             if payload_len > 0 or is_syn:
-                seq_next = tcp_layer.seq + \
-                    (payload_len if payload_len > 0 else 1)
+                seq_next = tcp_layer.seq + payload_len + (1 if is_syn else 0)
                 # Include ports to prevent cross-connection collisions
                 track_key = (dst_ip, src_ip, tcp_layer.dport,
                              tcp_layer.sport, seq_next)
