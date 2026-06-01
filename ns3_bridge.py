@@ -88,7 +88,11 @@ async def simulate_network():
                         response = await asyncio.wait_for(websocket.recv(), timeout=5.0)
                         decision = json.loads(response)
 
-                        route_str = "Primary (Fiber)" if decision["route"] == 0 else "Backup (Sat)"
+                        route = decision.get("route")
+                        route_str = {
+                            0: "Traffic Allowed",
+                            1: "IP Blocked (Mitigating)"
+                        }.get(route, f"Unknown ({route})")
                         print(f"Packet {i} | Vol: {vol:.0f} | Attack: {is_attack} | Route: {route_str}")
 
                         # FIX: MUST be await asyncio.sleep(), not time.sleep().

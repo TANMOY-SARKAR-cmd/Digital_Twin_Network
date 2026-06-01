@@ -279,9 +279,9 @@ def render_manager(fk: int):
     active_lat = lat_b if route == 1 else lat_a
 
     if route == 0:
-        route_label = "🟢 Primary (Fiber)"
+        route_label = "🟢 Traffic Allowed"
     else:
-        route_label = "🔴 Backup (Satellite)"
+        route_label = "🔴 IP Blocked (Mitigating)"
 
     manager_alert.markdown(
         f"**Active Route:** {route_label}  "
@@ -306,7 +306,7 @@ def render_manager(fk: int):
     ))
     fig.update_layout(
         height=200, margin=dict(l=0, r=0, t=8, b=0),
-        yaxis=dict(tickvals=[0, 1], ticktext=["Primary", "Backup"], title="Route"),
+        yaxis=dict(tickvals=[0, 1], ticktext=["Traffic Allowed", "IP Blocked"], title="Route"),
         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
         showlegend=False,
     )
