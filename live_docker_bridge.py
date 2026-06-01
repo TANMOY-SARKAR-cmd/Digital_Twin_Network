@@ -4,7 +4,8 @@ import json
 import os
 import queue
 import threading
-from scapy.all import sniff, IP
+import time
+from scapy.all import sniff, IP, TCP
 
 # Target API
 URI = "ws://127.0.0.1:8000/ws/network"
@@ -16,36 +17,82 @@ IFACE = os.getenv("IFACE", None)
 maxsize = int(os.getenv("PACKET_QUEUE_MAXSIZE", "10000"))
 packet_queue = queue.Queue(maxsize=maxsize)
 
+# Live TCP Latency Tracking
+ema_latency = 0.01  # Default to 10ms
+expected_acks = {}  # Dictionary to track packet transmission times
+MAX_TRACK_SIZE = 5000  # Prevent OOM memory leaks during a SYN flood
+
 
 def packet_handler(pkt):
-    """Callback for Scapy to process packets."""
+    """Callback for Scapy to process packets and calc real-time TCP RTT."""
+    global ema_latency
+
     if IP in pkt:
         src_ip = pkt[IP].src
-
-        # Extract basic features to mimic the CICFlowMeter CSV shape
+        dst_ip = pkt[IP].dst
         pkt_len = len(pkt)
         protocol = pkt[IP].proto
 
-        # We construct a dummy 40-feature array to satisfy the API's shape
-        # requirements, but inject the real live volume/length data that
-        # the normal_router uses.
+        # --- LIVE TCP RTT CALCULATION ---
+        if TCP in pkt:
+            tcp_layer = pkt[TCP]
+            current_time = time.monotonic()
+
+            # 1. Check if this packet is an ACK for something we sent
+            is_ack = bool(tcp_layer.flags & 0x10)
+            if is_ack:
+                ack_key = (
+                    src_ip,
+                    dst_ip,
+                    tcp_layer.sport,
+                    tcp_layer.dport,
+                    tcp_layer.ack,
+                )
+                sent_time = expected_acks.pop(ack_key, None)
+                if sent_time is not None:
+                    rtt = current_time - sent_time
+                    rtt = min(rtt, 2.0)  # Cap anomalies at 2 seconds
+
+                    # Update Exponential Moving Average (EMA) - 80% old, 20% new
+                    ema_latency = (0.8 * ema_latency) + (0.2 * rtt)
+
+            # 2. Track this packet if it expects an ACK (Payload or SYN flag)
+            payload_len = len(tcp_layer.payload)
+            is_syn = bool(tcp_layer.flags & 0x02)
+
+            if payload_len > 0 or is_syn:
+                seq_next = tcp_layer.seq + (payload_len if payload_len > 0 else 1)
+                track_key = (
+                    dst_ip,
+                    src_ip,
+                    tcp_layer.dport,
+                    tcp_layer.sport,
+                    seq_next,
+                )
+
+                # Bounded dictionary (FIFO eviction) to survive SYN floods
+                if len(expected_acks) >= MAX_TRACK_SIZE:
+                    expected_acks.pop(next(iter(expected_acks)))
+                expected_acks[track_key] = current_time
+
+        # --- BUILD AI PAYLOAD ---
         features = [0.0] * 40
         features[0] = float(protocol)
         features[1] = float(pkt_len)
 
         payload = {
             "features": features,
-            "volume": float(pkt_len),  # The critical metric for DDoS detection
-            "ground_truth_attack": False,  # Unknown in live traffic
-            "lat_a": 0.01,  # Default base latency
-            "lat_b": 0.05,  # Default satellite latency
-            "src_ip": src_ip
+            "volume": float(pkt_len),
+            "src_ip": src_ip,
+            "ground_truth_attack": False,
+            "lat_a": round(ema_latency, 4),   # 🔴 LIVE PHYSICAL LATENCY
+            "lat_b": 0.05  # Static baseline for the blocked/mitigated state
         }
+
         try:
             packet_queue.put_nowait(payload)
         except queue.Full:
-            # Consumer is slower than producer; drop to avoid unbounded backlog
-            pass
+            pass  # Consumer is slower than producer; drop packet to avoid...
 
 
 def run_sniffer():
