@@ -3,16 +3,16 @@ standard_router.py — Simulates a traditional (non-AI) router.
 
 Three selectable modes for the head-to-head comparison:
 
-  static  Always uses Primary link. Never adapts to conditions.
+  static  Always uses Allowed Traffic link. Never adapts to conditions.
           Represents the "do nothing" baseline.
 
-  random  Randomly picks Primary or Backup per packet.
+  random  Randomly picks Allowed Traffic or Blocked / Mitigated per packet.
           Represents the worst-case "no intelligence" baseline.
 
   ospf    Reacts to congestion AFTER it is detected — mimics OSPF
           link-state convergence. Switches only after N consecutive
           high-latency packets (convergence delay), and restores
-          Primary only after it has been stable again.
+          Allowed Traffic only after it has been stable again.
 """
 
 import numpy as np
@@ -30,7 +30,7 @@ class StandardRouter:
 
     def __init__(self, mode: RouterMode = "ospf"):
         self.mode: RouterMode = mode
-        self._route:      int   = 0        # 0 = Primary, 1 = Backup
+        self._route:      int   = 0        # 0 = Allowed Traffic, 1 = Blocked / Mitigated
         self._cong_count: int   = 0        # rising-congestion counter
         self._lat_buf:    deque = deque(maxlen=5)
 
@@ -51,10 +51,10 @@ class StandardRouter:
         """
         Returns
         -------
-        route               int   0 = Primary, 1 = Backup
+        route               int   0 = Allowed Traffic, 1 = Blocked / Mitigated
         reason              str   human-readable explanation
         experienced_latency float latency the packet actually encounters
-        reacted_late        bool  True when the router is on Primary during congestion
+        reacted_late        bool  True when the router is on Allowed Traffic during congestion
                                   (the dangerous window — packet suffers high latency)
         """
         prev_route = self._route
@@ -81,7 +81,7 @@ class StandardRouter:
         self._route = 0
         return {
             "route": 0,
-            "reason": "Static: Always Primary — no adaptation logic.",
+            "reason": "Static: Always Allowed Traffic — no adaptation logic.",
             "experienced_latency": lat_a,
             "reacted_late": lat_a > self.OSPF_HIGH_THRESHOLD,
         }
@@ -92,7 +92,7 @@ class StandardRouter:
         lat = lat_b if r == 1 else lat_a
         return {
             "route": r,
-            "reason": f"Random: Coin-flip → {'Backup' if r else 'Primary'}.",
+            "reason": f"Random: Coin-flip → {'Blocked / Mitigated' if r else 'Allowed Traffic'}.",
             "experienced_latency": lat,
             "reacted_late": (r == 0 and lat_a > self.OSPF_HIGH_THRESHOLD),
         }
@@ -101,31 +101,31 @@ class StandardRouter:
         self._lat_buf.append(lat_a)
         avg = float(np.mean(self._lat_buf))
 
-        if self._route == 0:                           # currently Primary
+        if self._route == 0:                           # currently Allowed Traffic
             if avg > self.OSPF_HIGH_THRESHOLD:
                 self._cong_count += 1
                 if self._cong_count >= self.OSPF_TRIGGER_N:
                     self._route = 1
                     reason = (
                         f"OSPF: Congestion confirmed after {self.OSPF_TRIGGER_N} packets "
-                        f"(avg_lat={avg:.3f}) → Failover to Backup"
+                        f"(avg_lat={avg:.3f}) → Mitigating Attack"
                     )
                 else:
                     reason = (
                         f"OSPF: Congestion building "
                         f"({self._cong_count}/{self.OSPF_TRIGGER_N}) — "
-                        f"still on Primary (avg_lat={avg:.3f})"
+                        f"still on Allowed Traffic (avg_lat={avg:.3f})"
                     )
             else:
                 self._cong_count = 0
-                reason = f"OSPF: Primary healthy (avg_lat={avg:.3f})"
-        else:                                          # currently Backup
+                reason = f"OSPF: Allowed Traffic healthy (avg_lat={avg:.3f})"
+        else:                                          # currently Blocked / Mitigated
             if avg < self.OSPF_RECOVERY_THRESHOLD:
                 self._route = 0
                 self._cong_count = 0
-                reason = f"OSPF: Primary recovered (avg_lat={avg:.3f}) → Restored"
+                reason = f"OSPF: Allowed Traffic recovered (avg_lat={avg:.3f}) → Restored"
             else:
-                reason = f"OSPF: Remaining on Backup (avg_lat={avg:.3f})"
+                reason = f"OSPF: Remaining on Blocked / Mitigated (avg_lat={avg:.3f})"
 
         lat = lat_b if self._route == 1 else lat_a
         reacted_late = (self._route == 0 and lat_a > self.OSPF_HIGH_THRESHOLD)

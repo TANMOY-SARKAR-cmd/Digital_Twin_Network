@@ -59,11 +59,11 @@
                 },
                 // Dynamic styles managed by WebSocket
                 {
-                    selector: '.active-primary',
+                    selector: '.active-allowed',
                     style: { 'line-color': '#2ecc71', 'target-arrow-color': '#2ecc71', 'width': 8 }
                 },
                 {
-                    selector: '.active-backup',
+                    selector: '.active-blocked',
                     style: { 'line-color': '#e67e22', 'target-arrow-color': '#e67e22', 'width': 8 }
                 }
             ],
@@ -83,8 +83,8 @@
             console.log("Telemetry received:", data);
 
             // Reset all edges to default grey
-            cy.edges().removeClass('active-primary');
-            cy.edges().removeClass('active-backup');
+            cy.edges().removeClass('active-allowed');
+            cy.edges().removeClass('active-blocked');
 
             if(data.is_attack) {
                 statusEl.innerHTML = "<span class='attack-alert'>⚠️ CYBER ATTACK DETECTED! Rerouting...</span>";
@@ -94,11 +94,11 @@
 
             // Route 0 = Traffic Allowed, Route 1 = IP Blocked (Mitigating)
             if(data.route === 0) {
-                cy.getElementById('A-B').addClass('active-primary');
-                cy.getElementById('B-D').addClass('active-primary');
+                cy.getElementById('A-B').addClass('active-allowed');
+                cy.getElementById('B-D').addClass('active-allowed');
             } else {
-                cy.getElementById('A-C').addClass('active-backup');
-                cy.getElementById('C-D').addClass('active-backup');
+                cy.getElementById('A-C').addClass('active-blocked');
+                cy.getElementById('C-D').addClass('active-blocked');
             }
         };
 
