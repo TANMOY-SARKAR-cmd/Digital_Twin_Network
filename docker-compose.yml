@@ -26,21 +26,22 @@ services:
     privileged: true
     cap_add:
       - NET_ADMIN
-    # Install OVS, enable routing, and keep alive
-    command: sh -c "apk add --no-cache openvswitch iproute2 && sysctl -w net.ipv4.ip_forward=1 && /usr/share/openvswitch/scripts/ovs-ctl start && ovs-vsctl --may-exist add-br br-core && sleep infinity"
+    # Install OVS, make bridge idempotent, and route traffic back to Edge Router
+    command: sh -c "apk add --no-cache openvswitch iproute2 && sysctl -w net.ipv4.ip_forward=1 && /usr/share/openvswitch/scripts/ovs-ctl start && ovs-vsctl --may-exist add-br br-core && ip route replace default via 10.0.0.1 && sleep infinity"
     networks:
       transit_network:
         ipv4_address: 10.0.0.2
       admin_network:
-        ipv4_address: 10.0.10.1  # Gateway for Admin VLAN
+        ipv4_address: 10.0.10.1
       guest_network:
-        ipv4_address: 10.0.20.1  # Gateway for Guest VLAN
+        ipv4_address: 10.0.20.1
 
   # Tier 3: Admin Web Server (High Security)
   admin_web_server:
     image: nginx:alpine
     container_name: admin_web_server
-    # Route outbound traffic through the Core Switch
+    cap_add:
+      - NET_ADMIN
     command: sh -c "ip route replace default via 10.0.10.1 && nginx -g 'daemon off;'"
     networks:
       admin_network:
@@ -52,7 +53,8 @@ services:
   guest_api_server:
     image: python:alpine
     container_name: guest_api_server
-    # Route outbound traffic through the Core Switch
+    cap_add:
+      - NET_ADMIN
     command: sh -c "ip route replace default via 10.0.20.1 && echo 'Guest API Running' > index.html && python -m http.server 3000"
     networks:
       guest_network:
@@ -68,7 +70,6 @@ services:
       - NET_ADMIN
     volumes:
       - ./attacks:/attacks
-    # Route to ALL internal 10.x.x.x networks via the Edge Router
     command: sh -c "ip route add 10.0.0.0/8 via 172.20.0.2 && tail -f /dev/null"
     networks:
       wan_network:
@@ -82,21 +83,19 @@ networks:
         - subnet: 172.20.0.0/16
   transit_network:
     driver: bridge
-    internal: true
     ipam:
       config:
         - subnet: 10.0.0.0/24
           gateway: 10.0.0.254
   admin_network:
     driver: bridge
-    internal: true
     ipam:
       config:
         - subnet: 10.0.10.0/24
           gateway: 10.0.10.254
   guest_network:
     driver: bridge
-    internal: true
     ipam:
       config:
         - subnet: 10.0.20.0/24
+          gateway: 10.0.20.254

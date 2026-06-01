@@ -22,7 +22,7 @@ ema_latency = 0.01  # Default to 10ms
 expected_acks = {}  # Dictionary to track packet transmission times
 MAX_TRACK_SIZE = 5000  # Prevent OOM memory leaks during a SYN flood
 # Our DMZ LAN and OpenWrt Gateway subnets
-SDN_PREFIXES = ("10.0.0.", "172.20.")
+SDN_PREFIXES = ("10.0.", "172.20.")
 
 
 def packet_handler(pkt):
