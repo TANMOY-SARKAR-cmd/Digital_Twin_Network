@@ -7,7 +7,7 @@ import atexit
 
 # Move out of 'data/' to prevent breaking dataset globbing
 LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
-LOG_FILE = os.path.join(LOG_DIR, "live_feedback.csv")
+LOG_FILE = os.path.join(LOG_DIR, f"live_feedback_{os.getpid()}.csv")
 
 # Bounded queue to prevent OOM
 telemetry_queue = queue.Queue(maxsize=int(os.getenv("TELEMETRY_QUEUE_MAXSIZE", "10000")))
