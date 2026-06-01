@@ -44,6 +44,12 @@ sysctl -w net.ipv4.ip_forward=1
 # Add basic NORMAL flow for the AI baseline
 ovs-ofctl add-flow br0 "priority=0,actions=NORMAL"
 
+# FIX 1: Set root password and start Dropbear SSH for the Actuator
+echo "Setting root password for SSH access..."
+echo -e "password\npassword" | passwd root
+/etc/init.d/dropbear enable
+/etc/init.d/dropbear start
+
 # Add static routes so OpenWrt knows how to reach the downstream VLANs via the Core Switch
 ip route replace 10.0.10.0/24 via 10.0.0.2
 ip route replace 10.0.20.0/24 via 10.0.0.2
