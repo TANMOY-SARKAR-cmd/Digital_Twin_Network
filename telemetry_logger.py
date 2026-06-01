@@ -25,16 +25,17 @@ def _writer_worker():
             writer.writerow(["timestamp", "state_0", "state_1", "state_2", "state_3", "state_4", "state_5", "action", "reward"])
 
         while True:
+            record = telemetry_queue.get()
             try:
-                record = telemetry_queue.get()
                 if record is None:  # Shutdown sentinel
                     break
                 writer.writerow(record)
                 f.flush()
-                telemetry_queue.task_done()
             except Exception as e:
                 print(f"Telemetry Logger Error: {e}")
                 time.sleep(1)  # Prevent tight error loop
+            finally:
+                telemetry_queue.task_done()
 
 def _ensure_writer_started():
     global _writer_started
