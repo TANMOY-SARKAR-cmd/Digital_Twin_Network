@@ -44,4 +44,8 @@ sysctl -w net.ipv4.ip_forward=1
 # Add basic NORMAL flow for the AI baseline
 ovs-ofctl add-flow br0 "priority=0,actions=NORMAL"
 
+# Add static routes so OpenWrt knows how to reach the downstream VLANs via the Core Switch
+ip route replace 10.0.10.0/24 via 10.0.0.2
+ip route replace 10.0.20.0/24 via 10.0.0.2
+
 echo "✅ OpenWrt Edge Router + OVS Setup Complete!"
