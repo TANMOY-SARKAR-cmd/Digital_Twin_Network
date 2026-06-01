@@ -26,7 +26,9 @@ SDN_PREFIXES = ("10.0.0.", "172.20.")
 
 
 def packet_handler(pkt):
-    """Callback for Scapy to process packets and calculate real-time TCP RTT & Congestion."""
+    """Callback for Scapy to process packets and calculate real-time
+    TCP RTT & Congestion.
+    """
     global ema_latency
 
     if IP in pkt:
@@ -52,16 +54,20 @@ def packet_handler(pkt):
             if is_ack:
                 ack_key = (src_ip, dst_ip, tcp_layer.sport,
                            tcp_layer.dport, tcp_layer.ack)
-                val = expected_acks.pop(ack_key, None)
+                tracked_ack = expected_acks.pop(ack_key, None)
 
-                if val is not None:
-                    sent_time, original_src = val
+                if tracked_ack is not None:
+                    sent_time, original_src = tracked_ack
                     rtt = current_time - sent_time
                     rtt = min(rtt, 2.0)
                     ema_latency = (0.8 * ema_latency) + (0.2 * rtt)
-                    # FIX: Report the original sender's IP so the actuator
-                    # blocks the attacker, not our local server
-                    reported_ip = original_src
+                    # FIX: Prevent blocking our own protected servers.
+                    # If the original packet came from our SDN, the attacker
+                    # is the current ACKer.
+                    if original_src.startswith(SDN_PREFIXES):
+                        reported_ip = src_ip
+                    else:
+                        reported_ip = original_src
 
             # 2. Track any packet requiring an ACK (payload or SYN flag)
             payload_len = len(tcp_layer.payload)
@@ -70,9 +76,7 @@ def packet_handler(pkt):
             if payload_len > 0 or is_syn:
                 # FIX: Correct TCP sequence math for SYN + Payload
                 # (TCP Fast Open)
-                seq_next = (
-                    tcp_layer.seq + payload_len + (1 if is_syn else 0)
-                )
+                seq_next = (tcp_layer.seq + payload_len + (1 if is_syn else 0))
                 track_key = (dst_ip, src_ip, tcp_layer.dport,
                              tcp_layer.sport, seq_next)
 
