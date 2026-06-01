@@ -17,14 +17,15 @@ IFACE = os.getenv("IFACE", None)
 maxsize = int(os.getenv("PACKET_QUEUE_MAXSIZE", "10000"))
 packet_queue = queue.Queue(maxsize=maxsize)
 
-# Live TCP Latency Tracking
+# --- Live TCP Latency Tracking ---
 ema_latency = 0.01  # Default to 10ms
 expected_acks = {}  # Dictionary to track packet transmission times
 MAX_TRACK_SIZE = 5000  # Prevent OOM memory leaks during a SYN flood
+LOCAL_PREFIXES = ("10.0.0.", "172.20.0.2")  # Our DMZ LAN and Gateway
 
 
 def packet_handler(pkt):
-    """Callback for Scapy to process packets and calc real-time TCP RTT."""
+    """Callback for Scapy to calculate real-time TCP RTT."""
     global ema_latency
 
     if IP in pkt:
@@ -36,39 +37,35 @@ def packet_handler(pkt):
         # --- LIVE TCP RTT CALCULATION ---
         if TCP in pkt:
             tcp_layer = pkt[TCP]
-            current_time = time.monotonic()
+            current_time = time.monotonic()  # Fix: Use monotonic clock
 
-            # 1. Check if this packet is an ACK for something we sent
+            # 1. Process incoming ACKs (from outside to inside)
             is_ack = bool(tcp_layer.flags & 0x10)
             if is_ack:
+                # Fix: Include ports to prevent cross-connection collisions
                 ack_key = (
-                    src_ip,
-                    dst_ip,
-                    tcp_layer.sport,
-                    tcp_layer.dport,
-                    tcp_layer.ack,
-                )
+                    src_ip, dst_ip, tcp_layer.sport, tcp_layer.dport,
+                    tcp_layer.ack)
                 sent_time = expected_acks.pop(ack_key, None)
+
                 if sent_time is not None:
                     rtt = current_time - sent_time
                     rtt = min(rtt, 2.0)  # Cap anomalies at 2 seconds
-
-                    # Update Exponential Moving Average (EMA) - 80% old, 20% new
+                    # Update EMA - 80% old, 20% new
                     ema_latency = (0.8 * ema_latency) + (0.2 * rtt)
 
-            # 2. Track this packet if it expects an ACK (Payload or SYN flag)
+            # 2. Track outgoing packets (from inside to outside)
             payload_len = len(tcp_layer.payload)
             is_syn = bool(tcp_layer.flags & 0x02)
+            is_outbound = src_ip.startswith(LOCAL_PREFIXES)
 
-            if payload_len > 0 or is_syn:
-                seq_next = tcp_layer.seq + (payload_len if payload_len > 0 else 1)
+            if is_outbound and (payload_len > 0 or is_syn):
+                seq_next = tcp_layer.seq + (
+                    payload_len if payload_len > 0 else 1)
+                # Fix: Include ports to prevent cross-connection collisions
                 track_key = (
-                    dst_ip,
-                    src_ip,
-                    tcp_layer.dport,
-                    tcp_layer.sport,
-                    seq_next,
-                )
+                    dst_ip, src_ip, tcp_layer.dport, tcp_layer.sport,
+                    seq_next)
 
                 # Bounded dictionary (FIFO eviction) to survive SYN floods
                 if len(expected_acks) >= MAX_TRACK_SIZE:
@@ -83,16 +80,15 @@ def packet_handler(pkt):
         payload = {
             "features": features,
             "volume": float(pkt_len),
-            "src_ip": src_ip,
             "ground_truth_attack": False,
-            "lat_a": round(ema_latency, 4),   # 🔴 LIVE PHYSICAL LATENCY
-            "lat_b": 0.05  # Static baseline for the blocked/mitigated state
+            "lat_a": round(ema_latency, 4),  # 🔴 LIVE PHYSICAL LATENCY
+            "lat_b": 0.05,
+            "src_ip": src_ip
         }
-
         try:
             packet_queue.put_nowait(payload)
         except queue.Full:
-            pass  # Consumer is slower than producer; drop packet to avoid...
+            pass
 
 
 def run_sniffer():
