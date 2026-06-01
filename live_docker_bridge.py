@@ -21,51 +21,65 @@ packet_queue = queue.Queue(maxsize=maxsize)
 ema_latency = 0.01  # Default to 10ms
 expected_acks = {}  # Dictionary to track packet transmission times
 MAX_TRACK_SIZE = 5000  # Prevent OOM memory leaks during a SYN flood
+# Our DMZ LAN and OpenWrt Gateway subnets
+SDN_PREFIXES = ("10.0.0.", "172.20.")
 
 
 def packet_handler(pkt):
-    """Callback for Scapy to calculate real-time TCP RTT & Congestion."""
+    """Callback for Scapy to process packets and calculate """
+    """real-time TCP RTT & Congestion."""
     global ema_latency
 
     if IP in pkt:
         src_ip = pkt[IP].src
         dst_ip = pkt[IP].dst
+
+        # FIX: Keep tracking scoped to the SDN topology to avoid host noise
+        if not (src_ip.startswith(SDN_PREFIXES) or
+                dst_ip.startswith(SDN_PREFIXES)):
+            return
+
         pkt_len = len(pkt)
         protocol = pkt[IP].proto
+        reported_ip = src_ip  # Default to the current packet's source
 
         # --- LIVE TCP RTT / CONGESTION CALCULATION ---
         if TCP in pkt:
             tcp_layer = pkt[TCP]
             current_time = time.monotonic()
 
-            # 1. Process ACKs (Matches both Network RTT and Local Turnaround)
+            # 1. Process ACKs
             is_ack = bool(tcp_layer.flags & 0x10)
             if is_ack:
-                # Match using ports to prevent cross-connection collisions
                 ack_key = (src_ip, dst_ip, tcp_layer.sport,
                            tcp_layer.dport, tcp_layer.ack)
-                sent_time = expected_acks.pop(ack_key, None)
+                val = expected_acks.pop(ack_key, None)
 
-                if sent_time is not None:
+                if val is not None:
+                    sent_time, original_src = val
                     rtt = current_time - sent_time
-                    rtt = min(rtt, 2.0)  # Cap anomalies at 2 seconds
-                    # Update EMA - 80% old, 20% new
+                    rtt = min(rtt, 2.0)
                     ema_latency = (0.8 * ema_latency) + (0.2 * rtt)
+                    # FIX: Report the original sender's IP so the actuator
+                    # blocks the attacker, not our local server
+                    reported_ip = original_src
 
             # 2. Track any packet requiring an ACK (payload or SYN flag)
             payload_len = len(tcp_layer.payload)
             is_syn = bool(tcp_layer.flags & 0x02)
 
             if payload_len > 0 or is_syn:
-                seq_next = tcp_layer.seq + payload_len + (1 if is_syn else 0)
-                # Include ports to prevent cross-connection collisions
+                # FIX: Correct TCP sequence math for SYN + Payload
+                # (TCP Fast Open)
+                seq_next = tcp_layer.seq + payload_len + \
+                    (1 if is_syn else 0)
                 track_key = (dst_ip, src_ip, tcp_layer.dport,
                              tcp_layer.sport, seq_next)
 
-                # Bounded dictionary (FIFO eviction) to survive SYN floods
                 if len(expected_acks) >= MAX_TRACK_SIZE:
                     expected_acks.pop(next(iter(expected_acks)))
-                expected_acks[track_key] = current_time
+                # FIX: Store both the timestamp AND the sender's IP
+                expected_acks[track_key] = (current_time, src_ip)
 
         # --- BUILD AI PAYLOAD ---
         features = [0.0] * 40
@@ -79,7 +93,8 @@ def packet_handler(pkt):
             # 🔴 LIVE PHYSICAL LATENCY (Network + Buffer Bloat)
             "lat_a": round(ema_latency, 4),
             "lat_b": 0.05,
-            "src_ip": src_ip
+            # Uses tracked attacker IP if this is a turnaround ACK
+            "src_ip": reported_ip
         }
         try:
             packet_queue.put_nowait(payload)
