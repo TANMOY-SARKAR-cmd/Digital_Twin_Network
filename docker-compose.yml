@@ -53,7 +53,7 @@ services:
     image: python:alpine
     container_name: guest_api_server
     # Route outbound traffic through the Core Switch
-    command: sh -c "ip route add default via 10.0.20.1 && echo 'Guest API Running' > index.html && python -m http.server 3000"
+    command: sh -c "ip route replace default via 10.0.20.1 && echo 'Guest API Running' > index.html && python -m http.server 3000"
     networks:
       guest_network:
         ipv4_address: 10.0.20.101
