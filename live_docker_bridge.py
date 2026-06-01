@@ -61,8 +61,9 @@ def packet_handler(pkt):
                     rtt = current_time - sent_time
                     rtt = min(rtt, 2.0)
                     ema_latency = (0.8 * ema_latency) + (0.2 * rtt)
-                    # FIX: Prevent blocking our own protected servers.
-                    # If the original packet came from our SDN, the attacker
+                    # FIX: Prevent blocking our own protected servers and
+                    # gateway. If the original packet came from our SDN,
+                    # the attacker
                     # is the current ACKer.
                     if original_src.startswith(SDN_PREFIXES):
                         reported_ip = src_ip
