@@ -13,26 +13,34 @@
 </head>
 <body>
     <h2>🚀 RL Agent Live Routing Policy</h2>
+
     <div id="statusText" class="status">Waiting for telemetry...</div>
+    <div class="status" style="font-size: 1em; font-weight: normal;">
+        Volume: <span id="live-volume">0 Bytes</span> | Latency: <span id="live-latency">0 ms</span>
+    </div>
+    <div class="status" style="font-size: 1.1em; font-weight: bold; margin-bottom: 10px;">
+        AI Action: <span id="ai-decision">Analyzing...</span>
+    </div>
     <div id="cy"></div>
 
     <script>
         // Initialize Cytoscape Network Graph
         var cy = cytoscape({
             container: document.getElementById('cy'),
+            // --- NEW ENTERPRISE TOPOLOGY ---
             elements: [
-                { data: { id: 'Router_A', label: 'Source (A)' } },
-                { data: { id: 'Router_B', label: 'Traffic Allowed (B)' } },
-                { data: { id: 'Router_C', label: 'IP Blocked (Mitigating) (C)' } },
-                { data: { id: 'Server_Farm', label: 'Dest (D)' } },
+                // Nodes
+                { data: { id: 'Attacker', label: 'External Client\n(172.20.0.10)' }, classes: 'node-external' },
+                { data: { id: 'Edge', label: 'Edge Firewall\n(OpenWrt)' }, classes: 'node-firewall' },
+                { data: { id: 'Core', label: 'Core Switch\n(OVS)' }, classes: 'node-switch' },
+                { data: { id: 'Admin', label: 'Admin Server\n(10.0.10.100)' }, classes: 'node-server' },
+                { data: { id: 'Guest', label: 'Guest API\n(10.0.20.101)' }, classes: 'node-server' },
 
-                // Allowed Traffic Path
-                { data: { id: 'A-B', source: 'Router_A', target: 'Router_B' } },
-                { data: { id: 'B-D', source: 'Router_B', target: 'Server_Farm' } },
-
-                // Mitigated / Blocked Path
-                { data: { id: 'A-C', source: 'Router_A', target: 'Router_C' } },
-                { data: { id: 'C-D', source: 'Router_C', target: 'Server_Farm' } },
+                // Edges (Physical Links)
+                { data: { id: 'Link-WAN', source: 'Attacker', target: 'Edge' } },
+                { data: { id: 'Link-Transit', source: 'Edge', target: 'Core' } },
+                { data: { id: 'Link-Admin', source: 'Core', target: 'Admin' } },
+                { data: { id: 'Link-Guest', source: 'Core', target: 'Guest' } }
             ],
             style: [
                 {
@@ -60,17 +68,18 @@
                 // Dynamic styles managed by WebSocket
                 {
                     selector: '.active-allowed',
-                    style: { 'line-color': '#2ecc71', 'target-arrow-color': '#2ecc71', 'width': 8 }
+                    style: { 'background-color': '#2ecc71', 'line-color': '#2ecc71', 'target-arrow-color': '#2ecc71', 'width': 8 }
                 },
                 {
                     selector: '.active-blocked',
-                    style: { 'line-color': '#e67e22', 'target-arrow-color': '#e67e22', 'width': 8 }
+                    style: { 'background-color': '#ff3333', 'line-color': '#ff3333', 'target-arrow-color': '#ff3333', 'width': 8 }
                 }
             ],
             layout: {
                 name: 'breadthfirst',
                 directed: true,
-                padding: 10
+                padding: 10,
+                spacingFactor: 1.5
             }
         });
 
@@ -78,27 +87,42 @@
         const ws = new WebSocket("ws://localhost:8000/ws/live_topology");
         const statusEl = document.getElementById('statusText');
 
+        // --- REAL-TIME AI ANIMATION LOGIC ---
         ws.onmessage = function(event) {
             const data = JSON.parse(event.data);
-            console.log("Telemetry received:", data);
 
-            // Reset all edges to default grey
-            cy.edges().removeClass('active-allowed');
-            cy.edges().removeClass('active-blocked');
+            // Update Dashboard Metrics
+            document.getElementById('live-volume').innerText = data.volume + " Bytes";
+            document.getElementById('live-latency').innerText = data.lat_a + " ms";
 
-            if(data.is_attack) {
-                statusEl.innerHTML = "<span class='attack-alert'>⚠️ CYBER ATTACK DETECTED! Rerouting...</span>";
-            } else {
-                statusEl.innerHTML = "<span style='color:#2ecc71;'>✅ Network Stable</span>";
-            }
+            // Clear previous animation states
+            cy.elements().removeClass('active-allowed active-blocked');
 
-            // Route 0 = Traffic Allowed, Route 1 = IP Blocked (Mitigating)
-            if(data.route === 0) {
-                cy.getElementById('A-B').addClass('active-allowed');
-                cy.getElementById('B-D').addClass('active-allowed');
-            } else {
-                cy.getElementById('A-C').addClass('active-blocked');
-                cy.getElementById('C-D').addClass('active-blocked');
+            if (data.route === 0) {
+                // TRUE NEGATIVE: Normal Traffic Allowed
+                document.getElementById('ai-decision').innerText = "Traffic Allowed";
+                document.getElementById('ai-decision').style.color = "#00ff00";
+
+                // Light up the backbone in green
+                cy.getElementById('Attacker').addClass('active-allowed');
+                cy.getElementById('Link-WAN').addClass('active-allowed');
+                cy.getElementById('Edge').addClass('active-allowed');
+                cy.getElementById('Link-Transit').addClass('active-allowed');
+                cy.getElementById('Core').addClass('active-allowed');
+
+            } else if (data.route === 1) {
+                // TRUE POSITIVE: Attack Mitigated (IP Blocked)
+                document.getElementById('ai-decision').innerText = "IP Blocked (Mitigating)";
+                document.getElementById('ai-decision').style.color = "#ff3333";
+
+                // Highlight the blocked perimeter in red; keep internal network safe
+                cy.getElementById('Attacker').addClass('active-blocked');
+                cy.getElementById('Link-WAN').addClass('active-blocked');
+                cy.getElementById('Edge').addClass('active-blocked');
+
+                // Visually sever the connection to the core
+                cy.getElementById('Link-Transit').removeClass('active-allowed active-blocked');
+                cy.getElementById('Core').removeClass('active-allowed active-blocked');
             }
         };
 
