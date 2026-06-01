@@ -493,8 +493,7 @@ async def network_endpoint(websocket: WebSocket):
     adaptive = {}
     last_action = 0
     pkt_count   = 0
-    currently_blocked_ip = None
-
+    blocked_ips = set()
     # Pre-fill vol_buf so prophet always gets a full sequence
     vol_buf.extend([0.0] * 60)
 
@@ -515,7 +514,8 @@ async def network_endpoint(websocket: WebSocket):
             seq_buf.append(scaled_feat)
             vol_buf.append(vol_scaled)
 
-            result = _ai_inference(
+            # --- AI INFERENCE ---
+            route_res = _ai_inference(
                 features    = features,
                 raw_vol     = raw_vol,
                 lat_a       = float(payload.get("lat_a", 0.01)),
@@ -527,27 +527,27 @@ async def network_endpoint(websocket: WebSocket):
                 last_action = last_action,
                 adaptive_baseline = adaptive,
             )
+            route = route_res["route"]
+            result = route_res
 
             # Extract the source IP from the payload
             src_ip = payload.get("src_ip", "172.20.0.10")
 
-            # Actuate the physical Docker switch if enabled
-            if result["route"] != last_action and ACTUATOR_AVAILABLE and os.getenv("ENABLE_ACTUATION") == "true":
-                target_to_actuate = None
+            # FIX 3: Remove redundant hardcoded volume/latency thresholds.
+            # Trust the PPO model's decision entirely.
 
-                if result["route"] == 1:
-                    # Attack detected: block the current packet's IP and remember it
-                    currently_blocked_ip = src_ip
-                    target_to_actuate = currently_blocked_ip
-                elif result["route"] == 0 and currently_blocked_ip is not None:
-                    # Attack cleared: unblock the IP that we previously blocked
-                    target_to_actuate = currently_blocked_ip
+            # --- OPENFLOW ACTUATION (NON-BLOCKING) ---
+            if route == 1 and ACTUATOR_AVAILABLE and os.getenv("ENABLE_ACTUATION") == "true":
+                if src_ip not in blocked_ips:
+                    blocked_ips.add(src_ip)
+                    print(f"🚨 AI DETECTED ATTACK! Mitigating IP: {src_ip}")
 
-                if target_to_actuate:
-                    asyncio.create_task(asyncio.to_thread(switch_route, result["route"], target_to_actuate))
-
-                if result["route"] == 0:
-                    currently_blocked_ip = None  # Clear state after unblocking
+                    # FIX 2: Fire the SSH actuator in a background thread so it doesn't freeze the FastAPI WebSocket
+                    asyncio.create_task(asyncio.to_thread(switch_route, 1, src_ip))
+            elif route == 0 and ACTUATOR_AVAILABLE and os.getenv("ENABLE_ACTUATION") == "true":
+                if src_ip in blocked_ips:
+                    blocked_ips.remove(src_ip)
+                    asyncio.create_task(asyncio.to_thread(switch_route, 0, src_ip))
 
             last_action = result["route"]
 
