@@ -103,7 +103,14 @@ async def inject_traffic():
                             "src_ip": "172.20.0.10"
                         }
                         await websocket.send(json.dumps(payload))
-                        await asyncio.wait_for(websocket.recv(), timeout=5.0)
+                        response = await asyncio.wait_for(websocket.recv(), timeout=5.0)
+                        decision = json.loads(response)
+                        route = decision.get('route')
+                        route_str = {
+                            0: "Traffic Allowed",
+                            1: "IP Blocked (Mitigating)"
+                        }.get(route, f"Unknown ({route})")
+                        print(f"Packet {i} | Vol: {vol:.0f} | Attack: {is_attack} | Route: {route_str}")
                         await asyncio.sleep(_delay_per_packet)
                         i += 1
             break  # Exit if successfully finished the whole dataset

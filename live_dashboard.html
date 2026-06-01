@@ -26,11 +26,11 @@
                 { data: { id: 'Router_C', label: 'IP Blocked (Mitigating) (C)' } },
                 { data: { id: 'Server_Farm', label: 'Dest (D)' } },
 
-                // Primary Path
+                // Allowed Traffic Path
                 { data: { id: 'A-B', source: 'Router_A', target: 'Router_B' } },
                 { data: { id: 'B-D', source: 'Router_B', target: 'Server_Farm' } },
 
-                // Backup Path
+                // Mitigated / Blocked Path
                 { data: { id: 'A-C', source: 'Router_A', target: 'Router_C' } },
                 { data: { id: 'C-D', source: 'Router_C', target: 'Server_Farm' } },
             ],

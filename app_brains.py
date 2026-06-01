@@ -279,9 +279,9 @@ def render_manager(fk: int):
     active_lat = lat_b if route == 1 else lat_a
 
     if route == 0:
-        route_label = "🟢 Primary (Fiber)"
+        route_label = "🟢 Traffic Allowed"
     else:
-        route_label = "🔴 Backup (Satellite)"
+        route_label = "🔴 IP Blocked (Mitigating)"
 
     manager_alert.markdown(
         f"**Active Route:** {route_label}  "
