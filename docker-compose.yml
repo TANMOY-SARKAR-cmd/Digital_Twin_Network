@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # 1. The OpenWrt Edge Router (with LuCI Web UI)
+  # Tier 1: The Edge Router (OpenWrt Firewall)
   sdn_router:
     image: openwrtorg/rootfs:x86-64
     container_name: sdn_router
@@ -10,44 +10,66 @@ services:
     cap_add:
       - NET_ADMIN
     ports:
-      - "8080:80"   # Access LuCI Web UI via http://localhost:8080
+      - "8080:80"
     volumes:
       - ./setup_router.sh:/setup_router.sh
     networks:
       wan_network:
-        ipv4_address: 172.20.0.2  # Public IP
-      lan_network:
-        ipv4_address: 10.0.0.1    # Internal Gateway IP
+        ipv4_address: 172.20.0.2
+      transit_network:
+        ipv4_address: 10.0.0.1
 
-  # 2. Protected Web Server
-  web_server:
-    image: nginx:alpine
-    container_name: web_server
-    networks:
-      lan_network:
-        ipv4_address: 10.0.0.100
-    depends_on:
-      - sdn_router
-
-  # 3. Protected Lightweight App Server
-  api_server:
-    image: python:alpine
-    container_name: api_server
-    command: sh -c "echo 'API Running' > index.html && python -m http.server 3000"
-    networks:
-      lan_network:
-        ipv4_address: 10.0.0.101
-    depends_on:
-      - sdn_router
-
-  # 4. The Attacker / External Client
-  external_client:
+  # Tier 2: The Core Switch (Alpine + Open vSwitch)
+  core_switch:
     image: alpine:latest
+    container_name: core_switch
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    # Install OVS, enable routing, and keep alive
+    command: sh -c "apk add --no-cache openvswitch iproute2 && sysctl -w net.ipv4.ip_forward=1 && /usr/share/openvswitch/scripts/ovs-ctl start && ovs-vsctl add-br br-core && sleep infinity"
+    networks:
+      transit_network:
+        ipv4_address: 10.0.0.2
+      admin_network:
+        ipv4_address: 10.0.10.1  # Gateway for Admin VLAN
+      guest_network:
+        ipv4_address: 10.0.20.1  # Gateway for Guest VLAN
+
+  # Tier 3: Admin Web Server (High Security)
+  admin_web_server:
+    image: nginx:alpine
+    container_name: admin_web_server
+    # Route outbound traffic through the Core Switch
+    command: sh -c "ip route add default via 10.0.10.1 && nginx -g 'daemon off;'"
+    networks:
+      admin_network:
+        ipv4_address: 10.0.10.100
+    depends_on:
+      - core_switch
+
+  # Tier 3: Guest API Server (Low Security)
+  guest_api_server:
+    image: python:alpine
+    container_name: guest_api_server
+    # Route outbound traffic through the Core Switch
+    command: sh -c "ip route add default via 10.0.20.1 && echo 'Guest API Running' > index.html && python -m http.server 3000"
+    networks:
+      guest_network:
+        ipv4_address: 10.0.20.101
+    depends_on:
+      - core_switch
+
+  # The Attacker / External Client
+  external_client:
+    image: python:alpine
     container_name: external_client
     cap_add:
       - NET_ADMIN
-    # Add a static route so the attacker knows how to reach the LAN through the router
-    command: sh -c "ip route add 10.0.0.0/24 via 172.20.0.2 && tail -f /dev/null"
+    volumes:
+      - ./attacks:/attacks
+    # Route to ALL internal 10.x.x.x networks via the Edge Router
+    command: sh -c "ip route add 10.0.0.0/8 via 172.20.0.2 && tail -f /dev/null"
     networks:
       wan_network:
         ipv4_address: 172.20.0.10
@@ -58,9 +80,21 @@ networks:
     ipam:
       config:
         - subnet: 172.20.0.0/16
-  lan_network:
+  transit_network:
     driver: bridge
-    internal: true # STRICT ISOLATION: No outside access allowed directly
+    internal: true
     ipam:
       config:
         - subnet: 10.0.0.0/24
+  admin_network:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.0.10.0/24
+  guest_network:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.0.20.0/24
