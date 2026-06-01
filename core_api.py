@@ -375,13 +375,12 @@ def _ai_inference(
     rl_action, _ = manager.predict(state, deterministic=True)
     action = int(rl_action)
     # Calculate a basic reward for continuous learning
-    # If traffic volume is massive (DDoS) and we didn't block the route, negative reward.
-    current_volume = features[0][1] # Extracting packet length/volume feature
+    current_volume = raw_vol  # payload "volume" is the canonical traffic-volume signal
     reward = 1.0
     if current_volume > 1500 and action == 0:
-        reward = -1.0 # Penalize staying open during high volume
+        reward = -1.0  # Penalize staying open during high volume
     elif current_volume > 1500 and action == 1:
-        reward = 1.0  # Reward blocking during attack
+        reward = 1.0   # Reward blocking during attack
 
     # Log asynchronously
     log_transition(state, action, reward)
