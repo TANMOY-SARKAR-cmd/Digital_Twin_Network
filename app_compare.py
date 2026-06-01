@@ -485,7 +485,7 @@ if st.session_state.packets_sent > 0:
 st.divider()
 
 # ── Route Decision Timeline ───────────────────────────────────────────────────
-st.subheader("📡 Route Decisions Over Time  (0 = Primary · 1 = Backup)")
+st.subheader("📡 Route Decisions Over Time  (0 = Traffic Allowed · 1 = IP Blocked (Mitigating))")
 route_chart = st.empty()
 
 
@@ -517,7 +517,7 @@ def _render_route_chart():
         height=250, margin=dict(l=50, r=20, t=20, b=40),
         plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
         yaxis=dict(title='Route', tickvals=[0, 1],
-                   ticktext=['Primary', 'Backup'], range=[-0.2, 1.4]),
+                   ticktext=['Traffic Allowed', 'IP Blocked (Mitigating)'], range=[-0.2, 1.4]),
         yaxis2=dict(title='Attack', overlaying='y', side='right',
                     range=[-0.1, 1.5], showgrid=False),
         legend=dict(orientation='h', yanchor='bottom', y=1.02)
