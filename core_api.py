@@ -376,12 +376,7 @@ def _ai_inference(
     action = int(rl_action)
     # Calculate a basic reward for continuous learning
     current_volume = raw_vol  # payload "volume" is the canonical traffic-volume signal
-    reward = 1.0
-    if current_volume > 1500 and action == 0:
-        reward = -1.0  # Penalize staying open during high volume
-    elif current_volume > 1500 and action == 1:
-        reward = 1.0   # Reward blocking during attack
-
+    reward = -1.0 if (current_volume > 1500 and action == 0) else 1.0
     # Log asynchronously
     log_transition(state, action, reward)
 
