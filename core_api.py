@@ -37,6 +37,8 @@ import logging
 import time
 from stable_baselines3 import PPO
 
+from telemetry_logger import log_transition
+
 try:
     from tornado.websocket import WebSocketClosedError as _TornadoWSClosed
 except ImportError:
@@ -372,6 +374,11 @@ def _ai_inference(
 
     rl_action, _ = manager.predict(state, deterministic=True)
     action = int(rl_action)
+    # Calculate a basic reward for continuous learning
+    current_volume = raw_vol  # payload "volume" is the canonical traffic-volume signal
+    reward = -1.0 if (current_volume > 1500 and action == 0) else 1.0
+    # Log asynchronously
+    log_transition(state, action, reward)
 
     return dict(
         route              = action,
