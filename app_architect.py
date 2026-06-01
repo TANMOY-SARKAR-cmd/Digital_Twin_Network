@@ -37,10 +37,10 @@ st.header("1. Router Configuration")
 col1, col2, col3 = st.columns(3)
 with col1:
     primary_bw = st.text_input("Allowed Traffic Bandwidth", "1 Gbps", key="primary_bw_val")
-    primary_lat = st.text_input("Primary Base Latency", "10ms")
+    primary_lat = st.text_input("Allowed Traffic Base Latency", "10ms")
 with col2:
     backup_bw = st.text_input("Blocked Traffic Bandwidth", "100 Mbps")
-    backup_lat = st.text_input("Backup Base Latency", "50ms")
+    backup_lat = st.text_input("Blocked Traffic Base Latency", "50ms")
 with col3:
     sim_speed = st.slider("Injection Speed (Packets/Sec)", 1, 50, 2)
     delay_per_packet = 1.0 / sim_speed
