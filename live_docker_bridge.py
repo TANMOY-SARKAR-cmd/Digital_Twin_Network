@@ -26,8 +26,7 @@ SDN_PREFIXES = ("10.0.0.", "172.20.")
 
 
 def packet_handler(pkt):
-    """Callback for Scapy to process packets and calculate """
-    """real-time TCP RTT & Congestion."""
+    """Callback for Scapy to process packets and calculate real-time TCP RTT & Congestion."""
     global ema_latency
 
     if IP in pkt:
