@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # Tier 1: The Edge Router (OpenWrt Firewall)
   sdn_router:
-    image: openwrtorg/rootfs:x86-64
+    image: openwrt/rootfs:x86_64
     container_name: sdn_router
     command: /sbin/init
     privileged: true
