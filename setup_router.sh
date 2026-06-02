@@ -1,57 +1,53 @@
 #!/bin/sh
 
-echo "Updating OpenWrt Packages..."
-opkg update
+# Enable IP forwarding
+sysctl -w net.ipv4.ip_forward=1
 
-echo "Installing Open vSwitch..."
-opkg install openvswitch ip-full
+# Clean up any stale OVS files
+rm -rf /var/run/openvswitch /etc/openvswitch/conf.db
 
-# Start OVS services
+# Start OVS database server
 mkdir -p /var/run/openvswitch
 ovsdb-tool create /etc/openvswitch/conf.db /usr/share/openvswitch/vswitch.ovsschema
 ovsdb-server --remote=punix:/var/run/openvswitch/db.sock --pidfile --detach
 ovs-vsctl --no-wait init
-ovs-vswitchd --pidfile --detach
+
+# Start OVS vswitchd (userspace only)
+ovs-vswitchd --pidfile --detach --disable-system
 sleep 2
 
-# Create OVS bridge br0
-ovs-vsctl add-br br0
+# Create bridge with netdev datapath
+ovs-vsctl add-br br0 -- set bridge br0 datapath_type=netdev
 
-# Identify WAN and LAN interfaces inside OpenWrt
-WAN_IF=$(ip -4 addr show | grep 172.20.0.2 | awk '{print $NF}')
-LAN_IF=$(ip -4 addr show | grep 10.0.0.1 | awk '{print $NF}')
+# Attach physical interfaces (eth0=WAN, eth1=Transit)
+ovs-vsctl add-port br0 eth0
+ovs-vsctl add-port br0 eth1
 
-# Save interfaces to file so the Python actuator can read them later
-echo "$WAN_IF" > /wan_if.txt
-echo "$LAN_IF" > /lan_if.txt
+# Save interface names for reference
+echo "eth0" > /wan_if.txt
+echo "eth1" > /lan_if.txt
 
-# Remove IP addresses from physical interfaces
-ip addr flush dev $WAN_IF
-ip addr flush dev $LAN_IF
-
-# Attach interfaces to the OVS bridge
-ovs-vsctl add-port br0 $WAN_IF
-ovs-vsctl add-port br0 $LAN_IF
-
-# Assign the gateway IPs directly to the bridge so OpenWrt can route
+# Move IPs from the physical interfaces to the bridge
+ip addr flush dev eth0
+ip addr flush dev eth1
 ip addr add 172.20.0.2/16 dev br0
 ip addr add 10.0.0.1/24 dev br0
 ip link set br0 up
 
-# Enable IP forwarding globally
-sysctl -w net.ipv4.ip_forward=1
-
-# Add basic NORMAL flow for the AI baseline
+# Basic NORMAL flow
 ovs-ofctl add-flow br0 "priority=0,actions=NORMAL"
 
-# FIX 1: Set root password and start Dropbear SSH for the Actuator
-echo "Setting root password for SSH access..."
-echo -e "password\npassword" | passwd root
-/etc/init.d/dropbear enable
-/etc/init.d/dropbear start
+# Set root password
+echo "root:password" | chpasswd
 
-# Add static routes so OpenWrt knows how to reach the downstream VLANs via the Core Switch
-ip route replace 10.0.10.0/24 via 10.0.0.2
-ip route replace 10.0.20.0/24 via 10.0.0.2
+# Add static routes to downstream networks
+ip route add 10.0.10.0/24 via 10.0.0.2
+ip route add 10.0.20.0/24 via 10.0.0.2
 
-echo "✅ OpenWrt Edge Router + OVS Setup Complete!"
+# ---- Generate Dropbear host keys ----
+mkdir -p /etc/dropbear
+dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key
+dropbearkey -t ecdsa -f /etc/dropbear/dropbear_ecdsa_host_key
+dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key
+
+echo "✅ Router with OVS userspace ready"
