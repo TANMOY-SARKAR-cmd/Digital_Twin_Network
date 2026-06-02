@@ -20,6 +20,7 @@ packet_queue = queue.Queue(maxsize=maxsize)
 # --- Live TCP Latency Tracking ---
 ema_latency = 0.01  # Default to 10ms
 expected_acks = {}  # Dictionary to track packet transmission times
+last_cleanup_time = time.monotonic()
 MAX_TRACK_SIZE = 5000  # Prevent OOM memory leaks during a SYN flood
 # Our DMZ LAN and OpenWrt Gateway subnets
 SDN_PREFIXES = ("10.0.", "172.20.")
@@ -48,6 +49,17 @@ def packet_handler(pkt):
         if TCP in pkt:
             tcp_layer = pkt[TCP]
             current_time = time.monotonic()
+
+            global last_cleanup_time
+            # TTL Cleanup: Every 10 seconds, remove packets waiting for an ACK for over 3 seconds
+            if current_time - last_cleanup_time > 10.0:
+                stale_keys = [
+                    k for k, v in expected_acks.items()
+                    if (current_time - (v[0] if isinstance(v, tuple) else v)) > 3.0
+                ]
+                for k in stale_keys:
+                    del expected_acks[k]
+                last_cleanup_time = current_time
 
             # 1. Process ACKs
             is_ack = bool(tcp_layer.flags & 0x10)

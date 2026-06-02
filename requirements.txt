@@ -76,3 +76,4 @@ websockets==16.0
 pytest
 pytest-asyncio
 scapy
+paramiko>=3.0.0

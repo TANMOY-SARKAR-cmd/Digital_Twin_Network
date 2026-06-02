@@ -193,7 +193,33 @@ try:
         torch.load(f"{MDL}/prophet_model.pth", map_location=device))
     prophet.eval()
 
-    manager = PPO.load(f"{MDL}/manager_model_aggressive.zip", device="cpu")
+    import gymnasium as gym
+    from gymnasium import spaces
+
+    class DummyEnv(gym.Env):
+        def __init__(self):
+            super().__init__()
+            self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32)
+            self.action_space = spaces.Discrete(2)
+        def step(self, action):
+            return np.zeros(6, dtype=np.float32), 0.0, False, False, {}
+        def reset(self, seed=None, options=None):
+            return np.zeros(6, dtype=np.float32), {}
+
+    env = DummyEnv()
+
+    try:
+        model_path = f"{MDL}/manager_model.zip"
+        manager = PPO.load(model_path, device="cpu")
+        last_model_update = os.path.getmtime(model_path)
+        print("✅ Pre-trained Manager Model loaded successfully.")
+    except Exception as e:
+        print(f"⚠️ Model load failed (Corrupted or Missing): {e}")
+        print("⚠️ Initializing a fresh, untrained fallback model to keep the API online...")
+        # Note: Ensure env is properly defined before this step, or pass the correct observation space
+        manager = PPO("MlpPolicy", env, verbose=0, device="cpu")
+        last_model_update = time.time()
+
     print("✅ All Systems Online.")
 
 except FileNotFoundError as e:

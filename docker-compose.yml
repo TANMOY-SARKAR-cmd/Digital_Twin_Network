@@ -11,6 +11,7 @@ services:
       - NET_ADMIN
     ports:
       - "8080:80"
+      - "2222:22"
     volumes:
       - ./setup_router.sh:/setup_router.sh
     networks:
