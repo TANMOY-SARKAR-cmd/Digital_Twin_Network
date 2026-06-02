@@ -20,6 +20,7 @@ packet_queue = queue.Queue(maxsize=maxsize)
 # --- Live TCP Latency Tracking ---
 ema_latency = 0.01  # Default to 10ms
 expected_acks = {}  # Dictionary to track packet transmission times
+last_cleanup_time = time.monotonic()
 MAX_TRACK_SIZE = 5000  # Prevent OOM memory leaks during a SYN flood
 # Our DMZ LAN and OpenWrt Gateway subnets
 SDN_PREFIXES = ("10.0.", "172.20.")
