@@ -1,8 +1,19 @@
-import subprocess
+import paramiko
 import ipaddress
 
-CONTAINER_NAME = "sdn_router"
 
+def run_ssh_command(cmd):
+    try:
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(hostname="127.0.0.1", port=2222, username="root", password="password")
+        stdin, stdout, stderr = ssh.exec_command(cmd)
+        error = stderr.read().decode().strip()
+        if error:
+            print(f"⚠️ ACTUATOR ERROR: {error}")
+        ssh.close()
+    except Exception as e:
+        print(f"⚠️ SSH CONNECTION ERROR: {e}")
 
 def is_valid_ip(ip_str):
     try:
@@ -19,13 +30,8 @@ def block_attacker(target_ip):
         return
 
     print(f"🛡️ ACTUATOR: Blocking IP {target_ip} at the Edge Switch!")
-    cmd = [
-        "docker", "exec", CONTAINER_NAME, "ovs-ofctl", "add-flow", "br0",
-        f"priority=200,ip,nw_src={target_ip},actions=drop"
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"⚠️ ACTUATOR ERROR: {result.stderr}")
+    cmd = f'ovs-ofctl del-flows br0 "ip,nw_src={target_ip}" && ovs-ofctl add-flow br0 "priority=100,ip,nw_src={target_ip},actions=drop"'
+    run_ssh_command(cmd)
 
 
 def unblock_attacker(target_ip):
@@ -34,13 +40,8 @@ def unblock_attacker(target_ip):
         return
 
     print(f"🟢 ACTUATOR: Restoring traffic flow for {target_ip}.")
-    cmd = [
-        "docker", "exec", CONTAINER_NAME, "ovs-ofctl", "del-flows", "br0",
-        f"ip,nw_src={target_ip}"
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"⚠️ ACTUATOR ERROR: {result.stderr}")
+    cmd = f'ovs-ofctl del-flows br0 "ip,nw_src={target_ip}"'
+    run_ssh_command(cmd)
 
 
 def switch_route(route_id, target_ip="172.20.0.10"):

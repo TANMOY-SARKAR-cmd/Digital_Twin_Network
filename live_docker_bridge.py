@@ -49,6 +49,17 @@ def packet_handler(pkt):
             tcp_layer = pkt[TCP]
             current_time = time.monotonic()
 
+            global last_cleanup_time
+            # TTL Cleanup: Every 10 seconds, remove packets waiting for an ACK for over 3 seconds
+            if current_time - last_cleanup_time > 10.0:
+                stale_keys = [
+                    k for k, v in expected_acks.items()
+                    if (current_time - (v[0] if isinstance(v, tuple) else v)) > 3.0
+                ]
+                for k in stale_keys:
+                    del expected_acks[k]
+                last_cleanup_time = current_time
+
             # 1. Process ACKs
             is_ack = bool(tcp_layer.flags & 0x10)
             if is_ack:
